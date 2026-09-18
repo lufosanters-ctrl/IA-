@@ -259,6 +259,28 @@ def _validar_flashcards(dados: Any, resultado: ResultadoPesquisa) -> list[dict]:
 # Quiz
 # --------------------------------------------------------------------------
 
+_RE_PALAVRA_FRASE = re.compile(r"[0-9A-Za-zÀ-ÿ][0-9A-Za-zÀ-ÿ'-]*")
+
+
+def _palavra_original(frase: str, alvo: str) -> str:
+    """A palavra da frase cuja forma normalizada e `alvo`.
+
+    O alvo sai de `tokenizar`, que remove acentos; procura-lo direto na frase
+    original nunca casava com palavra acentuada, e toda questao extrativa em
+    portugues era descartada.
+    """
+    normal_alvo = normalizar(alvo)
+    for marca in _RE_PALAVRA_FRASE.finditer(frase):
+        if normalizar(marca.group(0)) == normal_alvo:
+            return marca.group(0)
+    return ""
+
+
+def _com_lacuna(frase: str, palavra: str) -> str:
+    """Troca a primeira ocorrencia exata da palavra por uma lacuna."""
+    return re.sub(rf"\b{re.escape(palavra)}\b", "_____", frase, count=1)
+
+
 def quiz_extrativo(resultado: ResultadoPesquisa, quantidade: int) -> list[dict]:
     """Monta questoes de lacuna (cloze) a partir de frases reais das fontes."""
     aleatorio = random.Random(normalizar(resultado.pergunta))
@@ -276,11 +298,9 @@ def quiz_extrativo(resultado: ResultadoPesquisa, quantidade: int) -> list[dict]:
     for frase, alvo, numero in candidatas[: quantidade * 3]:
         if len(questoes) >= quantidade:
             break
-        padrao = re.compile(rf"\b{re.escape(alvo)}\w*\b", re.IGNORECASE)
-        achado = padrao.search(frase)
-        if not achado:
+        correta = _palavra_original(frase, alvo)
+        if not correta:
             continue
-        correta = achado.group(0)
         tokens_da_frase = {normalizar(t) for t in tokenizar(frase)}
         # Um bom distrator: nao esta na propria frase (senao a eliminacao e
         # trivial) e tem tamanho parecido com a resposta certa.
@@ -303,7 +323,7 @@ def quiz_extrativo(resultado: ResultadoPesquisa, quantidade: int) -> list[dict]:
         aleatorio.shuffle(alternativas)
         questoes.append(
             {
-                "pergunta": f"Complete: {padrao.sub('_____', frase, count=1)}",
+                "pergunta": f"Complete: {_com_lacuna(frase, correta)}",
                 "alternativas": alternativas,
                 "correta": alternativas.index(correta),
                 "explicacao": f"A fonte [{numero}] traz exatamente esta formulação.",
@@ -440,8 +460,11 @@ async def gerar_plano(
             if isinstance(dados, dict) and dados.get("sessoes"):
                 dados["modo"] = "neural"
                 if resultado:
-                    dados.setdefault("recursos", [])
-                    dados["recursos"] = list(dados["recursos"])[:8] or [
+                    # O modelo pode devolver "recursos" como numero ou null.
+                    # `list(5)` levantava TypeError e virava 500 na API.
+                    bruto = dados.get("recursos")
+                    recursos = [str(r) for r in bruto] if isinstance(bruto, list) else []
+                    dados["recursos"] = recursos[:8] or [
                         c.url for c in resultado.citacoes[:8]
                     ]
                 return dados

@@ -77,9 +77,21 @@ def juntar_linhas(bruto: str) -> str:
 
 
 # Marcador de pagina: "12", "- 12 -", "pág. 12", "Page 12 of 340", "xiv".
+# Numero arabico solto, com ou sem rotulo: "12", "- 12 -", "pág. 12",
+# "Page 12 of 340".
 _RE_MARCADOR_PAGINA = re.compile(
     r"^\s*[-–—|\[]?\s*(?:p[aá]g(?:ina)?\.?|page|fl\.?)?\s*"
-    r"[\divxlcdmIVXLCDM]{1,6}\s*(?:(?:/|de|of)\s*\d{1,6})?\s*[-–—|\]]?\s*$",
+    r"\d{1,6}\s*(?:(?:/|de|of)\s*\d{1,6})?\s*[-–—|\]]?\s*$",
+    re.IGNORECASE,
+)
+
+# Numeracao romana: so conta como marcador quando vem rotulada ou entre
+# delimitadores. Aceitar um romano nu apagava linhas legitimas do livro —
+# "CIVIL", "mil", "DVD", "MIX" e "div" sao todos romanos validos.
+_RE_MARCADOR_ROMANO = re.compile(
+    r"^\s*(?:[-–—|\[]\s*(?:p[aá]g(?:ina)?\.?|page|fl\.?)?\s*"
+    r"[ivxlcdm]{1,6}\s*[-–—|\]]"
+    r"|(?:p[aá]g(?:ina)?\.?|page|fl\.?)\s*[ivxlcdm]{1,6})\s*$",
     re.IGNORECASE,
 )
 
@@ -99,7 +111,10 @@ def _assinatura(linha: str) -> str:
 
 def _e_marcador_de_pagina(linha: str) -> bool:
     texto = linha.strip()
-    return bool(texto) and len(texto) <= 24 and bool(_RE_MARCADOR_PAGINA.match(texto))
+    if not texto or len(texto) > 24:
+        return False
+    return bool(_RE_MARCADOR_PAGINA.match(texto)
+                or _RE_MARCADOR_ROMANO.match(texto))
 
 
 def remover_cabecalhos(paginas: list[str], limiar: float = 0.5) -> list[str]:
@@ -115,7 +130,15 @@ def remover_cabecalhos(paginas: list[str], limiar: float = 0.5) -> list[str]:
     contagem: Counter[str] = Counter()
     for pagina in paginas:
         linhas = [linha for linha in pagina.split("\n") if linha.strip()]
-        for linha in linhas[:3] + linhas[-3:]:
+        # Numa pagina de ate 6 linhas, `linhas[:3] + linhas[-3:]` conta a mesma
+        # linha duas vezes e o limiar de repeticao e atingido com metade das
+        # paginas — apagando conteudo que nao e cabecalho.
+        bordas = sorted(
+            set(range(min(3, len(linhas))))
+            | set(range(max(0, len(linhas) - 3), len(linhas)))
+        )
+        for posicao in bordas:
+            linha = linhas[posicao]
             if len(linha.strip()) <= 90:
                 contagem[_assinatura(linha)] += 1
 
@@ -162,6 +185,42 @@ def detectar_capitulo(texto: str, anterior: str) -> str:
 
 
 # --------------------------------------------------------------------------
+# Tetos de extracao
+# --------------------------------------------------------------------------
+
+# Um EPUB e um ZIP: 300 KB de arquivo comprimido podem descomprimir para
+# centenas de MB. Ler o membro inteiro de uma vez travava o processo. Estes
+# limites valem por membro, por livro e por numero de paginas.
+MAX_BYTES_POR_MEMBRO = 8 * 1024 * 1024
+MAX_BYTES_POR_LIVRO = 64 * 1024 * 1024
+MAX_PAGINAS = 5000
+# Razao de compressao acima da qual o membro e tratado como bomba.
+MAX_RAZAO_COMPRESSAO = 200
+
+
+def _ler_membro_limitado(arquivo: zipfile.ZipFile, nome: str) -> str:
+    """Le um membro do ZIP sem deixar que ele estoure a memoria."""
+    try:
+        info = arquivo.getinfo(nome)
+    except KeyError:
+        return ""
+    comprimido = max(info.compress_size, 1)
+    if info.file_size > MAX_BYTES_POR_MEMBRO or (
+        info.file_size / comprimido > MAX_RAZAO_COMPRESSAO
+        and info.file_size > 1024 * 1024
+    ):
+        raise ErroExtracao(
+            f"o capitulo '{nome}' descomprime para {info.file_size // 1024} KB, "
+            "acima do limite seguro. O arquivo parece corrompido ou malicioso."
+        )
+    with arquivo.open(nome) as fluxo:
+        bruto = fluxo.read(MAX_BYTES_POR_MEMBRO + 1)
+    if len(bruto) > MAX_BYTES_POR_MEMBRO:
+        raise ErroExtracao(f"o capitulo '{nome}' passa do limite de leitura")
+    return bruto.decode("utf-8", "ignore")
+
+
+# --------------------------------------------------------------------------
 # Extratores por formato
 # --------------------------------------------------------------------------
 
@@ -180,7 +239,14 @@ def _extrair_pdf(caminho: Path) -> LivroExtraido:
                 leitor.decrypt("")
             except Exception as exc:
                 raise ErroExtracao("PDF protegido por senha") from exc
-        brutas = [(pagina.extract_text() or "") for pagina in leitor.pages]
+        brutas = []
+        total = 0
+        for pagina in leitor.pages[:MAX_PAGINAS]:
+            texto_pagina = pagina.extract_text() or ""
+            total += len(texto_pagina)
+            if total > MAX_BYTES_POR_LIVRO:
+                break
+            brutas.append(texto_pagina)
     except ErroExtracao:
         raise
     except Exception as exc:
@@ -268,11 +334,14 @@ def _extrair_epub(caminho: Path) -> LivroExtraido:
             raise ErroExtracao("EPUB sem capitulos legiveis")
 
         paginas: list[Pagina] = []
+        lidos = 0
         for indice, nome in enumerate(ordem, start=1):
-            try:
-                bruto = arquivo.read(nome).decode("utf-8", "ignore")
-            except KeyError:
+            if indice > MAX_PAGINAS or lidos > MAX_BYTES_POR_LIVRO:
+                break
+            bruto = _ler_membro_limitado(arquivo, nome)
+            if not bruto:
                 continue
+            lidos += len(bruto)
             cabecalho = re.search(r"<h[1-3][^>]*>(.*?)</h[1-3]>", bruto, re.S | re.I)
             capitulo = limpar_html(cabecalho.group(1))[:90] if cabecalho else ""
             corpo = re.sub(r"<(script|style)\b.*?</\1>", " ", bruto, flags=re.S | re.I)

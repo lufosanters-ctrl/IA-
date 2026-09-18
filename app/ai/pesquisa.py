@@ -601,6 +601,7 @@ async def pesquisar_em_fluxo(
     }
 
     cliente = criar_cliente()
+    tarefa: asyncio.Task[Any] | None = None
     try:
         yield {"tipo": "etapa", "rotulo": "Consultando as bases de dados"}
 
@@ -691,6 +692,14 @@ async def pesquisar_em_fluxo(
             "resposta": resposta,
         }
     finally:
+        # Se o cliente SSE fechar a aba no meio, o gerador e encerrado aqui —
+        # mas a task de recuperacao continua viva e passa a usar um httpx ja
+        # fechado ("Cannot send a request, as the client has been closed"),
+        # sem ninguem para ler a excecao. Cancelar antes de fechar o cliente
+        # impede tanto a task orfa quanto o trafego inutil para as bases.
+        if tarefa is not None and not tarefa.done():
+            tarefa.cancel()
+            await asyncio.gather(tarefa, return_exceptions=True)
         await cliente.aclose()
 
 

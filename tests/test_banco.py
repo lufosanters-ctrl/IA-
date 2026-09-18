@@ -52,19 +52,22 @@ def test_salvar_e_recuperar_pesquisa():
 
 
 def test_cartoes_duplicados_sao_ignorados():
-    baralho = banco.criar_baralho("Estudos")
+    baralho, _ = banco.criar_baralho("Estudos")
     cartao = {"frente": "O que e atencao?", "verso": "ponderacao de tokens"}
     assert banco.salvar_cartoes(baralho, [cartao]) == 1
     assert banco.salvar_cartoes(baralho, [cartao]) == 0
 
 
 def test_criar_baralho_e_idempotente():
-    primeiro = banco.criar_baralho("Repetido")
-    assert banco.criar_baralho("Repetido") == primeiro
+    primeiro, criado = banco.criar_baralho("Repetido")
+    assert criado is True
+    repetido, recriado = banco.criar_baralho("Repetido")
+    assert repetido == primeiro
+    assert recriado is False
 
 
 def test_revisao_reagenda_o_cartao():
-    baralho = banco.criar_baralho("Revisao")
+    baralho, _ = banco.criar_baralho("Revisao")
     banco.salvar_cartoes(baralho, [{"frente": "pergunta", "verso": "resposta"}])
     devidos = banco.cartoes_devidos(baralho)
     assert len(devidos) == 1
@@ -79,7 +82,7 @@ def test_revisao_de_cartao_inexistente():
 
 
 def test_estatisticas_refletem_a_atividade():
-    baralho = banco.criar_baralho("Metricas")
+    baralho, _ = banco.criar_baralho("Metricas")
     banco.salvar_cartoes(baralho, [{"frente": "a", "verso": "b"}])
     banco.salvar_pesquisa("p", "r", "geral", "neural", [])
     dados = banco.estatisticas()

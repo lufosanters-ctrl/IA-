@@ -183,18 +183,39 @@ def apagar_pesquisa(pesquisa_id: int) -> bool:
 # Baralhos e cartoes
 # --------------------------------------------------------------------------
 
-def criar_baralho(nome: str, descricao: str = "") -> int:
+class BaralhoInexistente(LookupError):
+    """O baralho pedido nao existe."""
+
+    def __init__(self, baralho_id: int) -> None:
+        super().__init__(f"baralho {baralho_id} nao existe")
+        self.baralho_id = baralho_id
+
+
+def baralho_existe(baralho_id: int) -> bool:
+    with conectar() as conexao:
+        linha = conexao.execute(
+            "SELECT 1 FROM baralhos WHERE id = ?", (baralho_id,)
+        ).fetchone()
+    return linha is not None
+
+
+def criar_baralho(nome: str, descricao: str = "") -> tuple[int, bool]:
+    """Cria o baralho. Devolve (id, criado_agora).
+
+    Nome repetido reaproveita o baralho existente — mas quem chamou precisa
+    saber disso, senao a descricao enviada some sem aviso nenhum.
+    """
     with conectar() as conexao:
         linha = conexao.execute(
             "SELECT id FROM baralhos WHERE nome = ?", (nome,)
         ).fetchone()
         if linha:
-            return int(linha["id"])
+            return int(linha["id"]), False
         cursor = conexao.execute(
             "INSERT INTO baralhos (nome, descricao, criado_em) VALUES (?, ?, ?)",
             (nome, descricao, _agora()),
         )
-        return int(cursor.lastrowid)
+        return int(cursor.lastrowid), True
 
 
 def listar_baralhos() -> list[dict[str, Any]]:
@@ -225,7 +246,14 @@ def apagar_baralho(baralho_id: int) -> bool:
 
 
 def salvar_cartoes(baralho_id: int, cartoes: list[dict[str, Any]]) -> int:
-    """Insere cartoes novos, ignorando duplicatas exatas de frente no baralho."""
+    """Insere cartoes novos, ignorando duplicatas exatas de frente no baralho.
+
+    Levanta `BaralhoInexistente` quando o baralho nao existe: sem isso, a
+    restricao de chave estrangeira subia como erro interno e a API devolvia
+    500 no lugar de 404.
+    """
+    if not baralho_existe(baralho_id):
+        raise BaralhoInexistente(baralho_id)
     if not cartoes:
         return 0
     agora = _agora()
@@ -280,11 +308,13 @@ def cartoes_devidos(baralho_id: int | None = None, limite: int = 30) -> list[dic
     hoje = date.today().isoformat()
     consulta = (
         "SELECT * FROM cartoes WHERE date(revisar_em) <= date(?) "
-        + ("AND baralho_id = ? " if baralho_id else "")
+        # `is not None`: o id 0 e um filtro valido, e `if baralho_id`
+        # devolvia silenciosamente os cartoes de TODOS os baralhos.
+        + ("AND baralho_id = ? " if baralho_id is not None else "")
         + "ORDER BY date(revisar_em) ASC, repeticoes ASC LIMIT ?"
     )
     parametros: tuple[Any, ...] = (
-        (hoje, baralho_id, limite) if baralho_id else (hoje, limite)
+        (hoje, baralho_id, limite) if baralho_id is not None else (hoje, limite)
     )
     with conectar() as conexao:
         linhas = conexao.execute(consulta, parametros).fetchall()

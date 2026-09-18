@@ -130,7 +130,9 @@ def detectar_area(consulta: str) -> str:
 def escolher_fontes(consulta: str, pedidas: list[str] | None = None) -> list[str]:
     """Decide quais bases consultar: escolha do usuario ou roteamento automatico."""
     if pedidas:
-        validas = [f for f in pedidas if f in FONTES]
+        # Deduplicar preservando a ordem: "arxiv" repetido dez vezes abria dez
+        # conexoes para a mesma base, sem ganho nenhum de cobertura.
+        validas = list(dict.fromkeys(f for f in pedidas if f in FONTES))
         if validas:
             return validas
     area = detectar_area(consulta)

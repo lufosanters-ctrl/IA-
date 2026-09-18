@@ -9,6 +9,7 @@ Nada e enviado para fora: o livro e seu, o indice tambem.
 
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 from contextlib import contextmanager
@@ -20,6 +21,8 @@ from typing import Any, Iterator
 from .config import obter_config
 from .livros import ErroExtracao, extrair, impressao_digital
 from .texto import dividir_em_trechos, normalizar, tokenizar, truncar
+
+log = logging.getLogger("nucleo.biblioteca")
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS livros (
@@ -231,16 +234,34 @@ def indexar(
     return resultado
 
 
-def indexar_pasta(pasta: Path | None = None, area: str = "") -> list[ResultadoIngestao]:
-    """Indexa todos os livros de uma pasta (por padrao, `biblioteca/`)."""
+# Teto de uma varredura. Sem ele, uma pasta com milhares de arquivos fazia a
+# requisicao rodar por minutos sem resposta nem forma de acompanhar.
+MAX_ARQUIVOS_POR_VARREDURA = 500
+
+
+def indexar_pasta(pasta: Path | None = None, area: str = "",
+                  maximo: int = MAX_ARQUIVOS_POR_VARREDURA) -> list[ResultadoIngestao]:
+    """Indexa os livros de uma pasta (por padrao, `biblioteca/`)."""
     from .livros import FORMATOS
 
     pasta = Path(pasta) if pasta else diretorio_livros()
     arquivos = sorted(
         caminho for caminho in pasta.rglob("*")
         if caminho.is_file() and caminho.suffix.lower() in FORMATOS
+        and not caminho.name.startswith(".")
     )
-    return [indexar(caminho, area=area) for caminho in arquivos]
+    resultados = [indexar(caminho, area=area) for caminho in arquivos[:maximo]]
+    if len(arquivos) > maximo:
+        restantes = len(arquivos) - maximo
+        log.info("varredura limitada a %d arquivos; %d ficaram de fora", maximo, restantes)
+        resultados.append(ResultadoIngestao(
+            arquivo=f"(+{restantes} arquivos)", titulo="", estado="ignorado",
+            detalhe=(
+                f"a varredura para em {maximo} arquivos por vez. "
+                "Rode de novo para continuar de onde parou."
+            ),
+        ))
+    return resultados
 
 
 def remover_livro(livro_id: int) -> bool:
@@ -287,7 +308,10 @@ def montar_expressao(consulta: str) -> str:
     por OR, para que uma pergunta longa ainda encontre algo.
     """
     termos = [t for t in _RE_SEGURO.split(consulta) if len(t) > 1]
-    uteis = [t for t in termos if normalizar(t) in {normalizar(x) for x in tokenizar(consulta)}]
+    # Calcular o conjunto UMA vez: dentro da comprehension, `tokenizar` rodava
+    # de novo para cada termo e a montagem virava O(n2).
+    significativos = {normalizar(x) for x in tokenizar(consulta)}
+    uteis = [t for t in termos if normalizar(t) in significativos]
     escolhidos = uteis or termos
     if not escolhidos:
         return ""
@@ -317,7 +341,7 @@ def buscar(consulta: str, limite: int = 8, livro_id: int | None = None) -> list[
          WHERE trechos_fts MATCH ?
     """
     parametros: list[Any] = [expressao]
-    if livro_id:
+    if livro_id is not None:
         sql += " AND l.id = ?"
         parametros.append(livro_id)
     sql += " ORDER BY pontuacao LIMIT ?"
@@ -326,8 +350,16 @@ def buscar(consulta: str, limite: int = 8, livro_id: int | None = None) -> list[
     try:
         with conectar() as conexao:
             linhas = conexao.execute(sql, parametros).fetchall()
-    except sqlite3.OperationalError:
-        # Expressao que o FTS5 recusou: melhor devolver vazio que quebrar a busca.
+    except sqlite3.OperationalError as erro:
+        # Expressao que o FTS5 recusou: devolver vazio e melhor que quebrar a
+        # busca. Mas "database is locked" e "no such table" tambem caem aqui,
+        # e engolir isso em silencio faz a biblioteca do estudante parecer
+        # vazia sem nenhum sinal do que houve.
+        motivo = str(erro).lower()
+        if "syntax error" in motivo or "fts5" in motivo or "malformed match" in motivo:
+            log.debug("busca recusada pelo FTS5: %s", erro)
+        else:
+            log.error("falha operacional na busca da biblioteca: %s", erro)
         return []
     return [dict(linha) for linha in linhas]
 

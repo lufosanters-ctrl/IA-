@@ -133,7 +133,6 @@ def verificar_fundamentacao(
         if numero is not None:
             textos[int(numero)] = trecho or ""
 
-    maximo = max(textos) if textos else 0
     factuais = 0
     citadas = 0
     apoiadas = 0

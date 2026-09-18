@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from uuid import uuid4
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -31,6 +32,7 @@ from .matematica.classificacao import NIVEIS, TOPICOS, classificar
 from .matematica.criacao import GERADORES, criar as criar_questao
 from .matematica.resolucao import Problema, dar_pista, resolver as resolver_problema
 from .livros import FORMATOS
+from .cache import CacheTTL
 from .config import obter_config
 from .schemas import (
     PedidoBaralho,
@@ -290,8 +292,17 @@ async def baralhos() -> list[dict[str, Any]]:
 
 @app.post("/api/baralhos", tags=["revisao"])
 async def criar_baralho(pedido: PedidoBaralho) -> dict[str, Any]:
-    identificador = banco.criar_baralho(pedido.nome.strip(), pedido.descricao.strip())
-    return {"id": identificador, "nome": pedido.nome.strip()}
+    identificador, criado = banco.criar_baralho(
+        pedido.nome.strip(), pedido.descricao.strip()
+    )
+    return {
+        "id": identificador,
+        "nome": pedido.nome.strip(),
+        "criado": criado,
+        # Nome repetido reaproveita o baralho existente e mantem a descricao
+        # antiga. Dizer isso evita que o estudante ache que perdeu o envio.
+        "aviso": "" if criado else "Já existia um baralho com esse nome; ele foi reaproveitado.",
+    }
 
 
 @app.delete("/api/baralhos/{baralho_id}", tags=["revisao"])
@@ -308,9 +319,12 @@ async def cartoes(baralho_id: int) -> list[dict[str, Any]]:
 
 @app.post("/api/baralhos/{baralho_id}/cartoes", tags=["revisao"])
 async def salvar_cartoes(baralho_id: int, pedido: PedidoSalvarCartoes) -> dict[str, Any]:
-    inseridos = banco.salvar_cartoes(
-        baralho_id, [c.model_dump() for c in pedido.cartoes]
-    )
+    try:
+        inseridos = banco.salvar_cartoes(
+            baralho_id, [c.model_dump() for c in pedido.cartoes]
+        )
+    except banco.BaralhoInexistente as erro:
+        raise HTTPException(404, "Baralho não encontrado.") from erro
     return {"inseridos": inseridos, "enviados": len(pedido.cartoes)}
 
 
@@ -360,6 +374,19 @@ async def biblioteca_estado() -> dict[str, Any]:
     }
 
 
+def _nome_livre(pasta: Path, nome: str) -> Path:
+    """Caminho que nao sobrescreve nenhum livro ja guardado."""
+    alvo = pasta / nome
+    if not alvo.exists():
+        return alvo
+    base, sufixo = Path(nome).stem, Path(nome).suffix
+    for n in range(2, 1000):
+        candidato = pasta / f"{base} ({n}){sufixo}"
+        if not candidato.exists():
+            return candidato
+    return pasta / f"{base}-{uuid4().hex[:8]}{sufixo}"
+
+
 @app.post("/api/biblioteca/enviar", tags=["biblioteca"])
 async def biblioteca_enviar(
     arquivos: list[UploadFile] = File(...),
@@ -379,28 +406,43 @@ async def biblioteca_enviar(
             })
             continue
 
-        caminho = destino / nome
+        # Gravar em arquivo temporario e so depois renomear: escrever direto
+        # sobre `destino/nome` truncava um livro ja indexado, e o `unlink` do
+        # caminho de erro apagava o original do estudante.
+        temporario = destino / f".{nome}.parcial"
         tamanho = 0
         try:
-            with open(caminho, "wb") as saida:
+            with open(temporario, "wb") as saida:
                 while bloco := await enviado.read(1 << 20):
                     tamanho += len(bloco)
                     if tamanho > limite:
                         raise ValueError("arquivo maior que o limite")
                     saida.write(bloco)
         except ValueError:
-            caminho.unlink(missing_ok=True)
+            temporario.unlink(missing_ok=True)
             resultados.append({
                 "arquivo": nome, "estado": "erro",
                 "detalhe": f"o arquivo passa de {cfg.max_mb_por_livro} MB",
             })
             continue
         except OSError as exc:
+            temporario.unlink(missing_ok=True)
             resultados.append({"arquivo": nome, "estado": "erro",
                                "detalhe": f"falha ao gravar: {exc.strerror}"})
             continue
 
-        resultado = biblioteca.indexar(caminho, area=area)
+        caminho = _nome_livre(destino, nome)
+        try:
+            temporario.replace(caminho)
+        except OSError as exc:
+            temporario.unlink(missing_ok=True)
+            resultados.append({"arquivo": nome, "estado": "erro",
+                               "detalhe": f"falha ao gravar: {exc.strerror}"})
+            continue
+
+        # Extracao e indexacao sao CPU pura e sincronas: rodando no event loop,
+        # um PDF grande congela a API inteira para todo mundo.
+        resultado = await asyncio.to_thread(biblioteca.indexar, caminho, area=area)
         if resultado.estado == "erro":
             caminho.unlink(missing_ok=True)
         resultados.append(resultado.para_dict())
@@ -411,7 +453,7 @@ async def biblioteca_enviar(
 @app.post("/api/biblioteca/indexar", tags=["biblioteca"])
 async def biblioteca_indexar(pedido: PedidoIndexarPasta) -> dict[str, Any]:
     """Varre a pasta biblioteca/ e indexa o que ainda nao esta no indice."""
-    resultados = biblioteca.indexar_pasta(area=pedido.area)
+    resultados = await asyncio.to_thread(biblioteca.indexar_pasta, area=pedido.area)
     return {
         "resultados": [r.para_dict() for r in resultados],
         "estatisticas": biblioteca.estatisticas(),
@@ -424,7 +466,7 @@ async def biblioteca_catalogo(pedido: PedidoCatalogo) -> dict[str, Any]:
     resultados = await baixar_catalogo(area=pedido.area, chaves=pedido.chaves or None)
     return {
         "resultados": [r.para_dict() for r in resultados],
-        "estatisticas": biblioteca.estatisticas(),
+        "estatisticas": await asyncio.to_thread(biblioteca.estatisticas),
     }
 
 
@@ -658,7 +700,20 @@ async def tutor_padroes(minimo: int = Query(default=2, ge=1, le=20)) -> dict[str
 @app.post("/api/tutor/imagem", tags=["tutoria"])
 async def tutor_imagem(arquivo: UploadFile = File(...)) -> dict[str, Any]:
     """Lê uma questão fotografada e devolve a transcrição para confirmação."""
-    conteudo = await arquivo.read()
+    # Ler em blocos e abortar no estouro: `await arquivo.read()` sem limite
+    # materializava o upload inteiro na memoria ANTES de conferir o tamanho,
+    # e um multipart de alguns GB derrubava o processo.
+    limite = visao.LIMITE_BYTES
+    partes: list[bytes] = []
+    total = 0
+    while bloco := await arquivo.read(1 << 20):
+        total += len(bloco)
+        if total > limite:
+            raise HTTPException(
+                413, f"imagem maior que {limite // (1024 * 1024)} MB"
+            )
+        partes.append(bloco)
+    conteudo = b"".join(partes)
     try:
         leitura = await visao.ler_imagem(conteudo)
     except visao.ErroLeitura as exc:
@@ -731,6 +786,21 @@ async def ingles_contrastes(lingua: str = Query(default="")) -> list[dict[str, A
     ]
 
 
+# Os casos de referencia sao deterministicos: o resultado so muda quando o
+# codigo muda. Sem cache, cada chamada gastava meio segundo de CPU rodando
+# sympy de novo para dar exatamente a mesma resposta.
+_cache_afericao = CacheTTL(ttl_segundos=300, max_itens=16)
+
+
+def _afericao_em_cache(area: str) -> dict[str, Any]:
+    guardado = _cache_afericao.obter(f"afericao:{area}")
+    if guardado is not None:
+        return guardado
+    dados = aferir(area).para_dict()
+    _cache_afericao.guardar(f"afericao:{area}", dados)
+    return dados
+
+
 @app.get("/api/afericao", tags=["sistema"])
 async def afericao_do_sistema(area: str = Query(default="")) -> dict[str, Any]:
     """Roda os casos de referência e devolve a taxa de acerto por área.
@@ -739,7 +809,7 @@ async def afericao_do_sistema(area: str = Query(default="")) -> dict[str, Any]:
     estão acertando? Os casos têm gabarito conhecido, tirados das regras
     consagradas e do tipo de questão que cai em prova.
     """
-    return await asyncio.to_thread(lambda: aferir(area).para_dict())
+    return await asyncio.to_thread(_afericao_em_cache, area)
 
 
 # --------------------------------------------------------------------------

@@ -71,12 +71,22 @@ def normalizar(palavra: str) -> str:
     return "".join(c for c in decomposto if unicodedata.category(c) != "Mn")
 
 
+# As stopwords normalizadas nao mudam nunca. Reconstruir o conjunto a cada
+# chamada dobrava o custo de `tokenizar`, que roda uma vez por trecho em
+# `pontuar_bm25`, `selecionar_diversos` e na verificacao.
+STOPWORDS_NORMALIZADAS: frozenset[str] = frozenset(
+    normalizar(palavra) for palavra in STOPWORDS
+)
+
+
 def tokenizar(texto: str, remover_stopwords: bool = True) -> list[str]:
     """Divide o texto em tokens normalizados."""
     tokens = [normalizar(t) for t in _RE_TOKEN.findall(texto or "")]
     if remover_stopwords:
-        vazias = {normalizar(p) for p in STOPWORDS}
-        tokens = [t for t in tokens if t not in vazias and len(t) > 1]
+        tokens = [
+            t for t in tokens
+            if t not in STOPWORDS_NORMALIZADAS and len(t) > 1
+        ]
     return tokens
 
 
@@ -142,6 +152,14 @@ def _cauda_em_frase(texto: str, limite: int) -> str:
     return pedaco[achado.end():].strip() if achado else ""
 
 
+def _corte_em_palavra(texto: str, limite: int) -> int:
+    """Onde cortar `texto` perto de `limite` sem partir uma palavra."""
+    janela = texto[:limite]
+    espaco = janela.rfind(" ")
+    # Sem espaco nenhum na janela (CJK, URL longa): corta no limite mesmo.
+    return espaco if espaco > limite // 2 else limite
+
+
 def dividir_em_trechos(
     texto: str,
     tamanho: int = 900,
@@ -168,8 +186,16 @@ def dividir_em_trechos(
             cauda = _cauda_em_frase(atual, sobreposicao) if sobreposicao else ""
             atual = f"{cauda} {frase}".strip() if cauda else frase
         else:
-            blocos.append(frase[:tamanho])
-            atual = frase[tamanho:]
+            # Frase maior que um bloco inteiro (tabela, lista, texto sem
+            # pontuacao ocidental). Fatiar so a primeira parte deixava o resto
+            # inteiro em `atual`, e o bloco final saia centenas de vezes maior
+            # que `tamanho` — indo assim para o indice e para o prompt.
+            resto = frase
+            while len(resto) > tamanho:
+                corte = _corte_em_palavra(resto, tamanho)
+                blocos.append(resto[:corte].strip())
+                resto = resto[corte:].lstrip()
+            atual = resto
     if atual.strip():
         blocos.append(atual.strip())
     return [b for b in blocos if len(b) > 60]

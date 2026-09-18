@@ -15,15 +15,19 @@ funcionando quando um livro e renomeado ou substituido por edicao melhor.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
 from .biblioteca import ResultadoIngestao, diretorio_livros, indexar
 from .texto import limpar_html
+
+log = logging.getLogger("nucleo.catalogo")
 
 LICENCA_WIKILIVROS = "CC BY-SA 3.0 (Wikilivros)"
 LICENCA_GUTENBERG = "Domínio público (Project Gutenberg)"
@@ -219,9 +223,12 @@ async def baixar_gutenberg(
     if not endereco:
         raise ErroDownload("o livro não tem versão em texto simples")
 
-    baixado = await cliente.get(endereco)
-    baixado.raise_for_status()
-    texto = baixado.text
+    if not _endereco_confiavel(endereco):
+        raise ErroDownload(
+            "o endereço do arquivo não aponta para um domínio conhecido do "
+            "Project Gutenberg"
+        )
+    texto = await _baixar_texto(cliente, endereco)
     if len(texto) < 3000:
         raise ErroDownload("arquivo baixado é curto demais")
 
@@ -240,6 +247,46 @@ async def baixar_gutenberg(
     arquivo.write_text(conteudo, encoding="utf-8")
     url = f"https://www.gutenberg.org/ebooks/{livro.get('id', '')}"
     return arquivo, titulo, url
+
+
+# Teto para o corpo de um livro baixado. O endereco vem do JSON de terceiro e
+# `resposta.text` sem limite carregava o que viesse na memoria.
+MAX_BYTES_DOWNLOAD = 32 * 1024 * 1024
+
+# Dominios de onde aceitamos baixar. A URL vem do catalogo publico, nao de
+# nos: sem esta checagem, o catalogo poderia nos apontar para qualquer host.
+DOMINIOS_CONFIAVEIS = (
+    "gutenberg.org", "www.gutenberg.org", "gutenberg.pglaf.org",
+    "aleph.gutenberg.org", "wikimedia.org", "wikibooks.org",
+    "pt.wikibooks.org", "upload.wikimedia.org",
+)
+
+
+def _endereco_confiavel(endereco: str) -> bool:
+    partes = urlsplit(endereco)
+    if partes.scheme != "https":
+        return False
+    hospedeiro = partes.hostname or ""
+    return any(
+        hospedeiro == dominio or hospedeiro.endswith("." + dominio)
+        for dominio in DOMINIOS_CONFIAVEIS
+    )
+
+
+async def _baixar_texto(cliente: httpx.AsyncClient, endereco: str) -> str:
+    """Baixa um texto abortando se passar do teto."""
+    partes: list[bytes] = []
+    total = 0
+    async with cliente.stream("GET", endereco) as resposta:
+        resposta.raise_for_status()
+        async for bloco in resposta.aiter_bytes(1 << 16):
+            total += len(bloco)
+            if total > MAX_BYTES_DOWNLOAD:
+                raise ErroDownload(
+                    f"o arquivo passa de {MAX_BYTES_DOWNLOAD // (1024 * 1024)} MB"
+                )
+            partes.append(bloco)
+    return b"".join(partes).decode("utf-8", "ignore")
 
 
 # --------------------------------------------------------------------------
@@ -269,11 +316,27 @@ async def baixar_item(
         return ResultadoIngestao(arquivo=item.chave, titulo=item.titulo,
                                  estado="erro",
                                  detalhe=f"falha de rede: {type(exc).__name__}")
+    except (OSError, ValueError) as exc:
+        # Disco cheio, permissao negada, JSON malformado do catalogo: tudo
+        # isso subia ate o FastAPI e derrubava a rota inteira com 500.
+        log.warning("falha ao baixar %s: %s", item.chave, exc)
+        return ResultadoIngestao(arquivo=item.chave, titulo=item.titulo,
+                                 estado="erro",
+                                 detalhe=f"falha ao gravar ou ler o arquivo: {exc}")
 
-    resultado = indexar(
-        arquivo, area=item.area, origem=f"catalogo:{item.origem}",
-        licenca=licenca, url=url,
-    )
+    try:
+        resultado = indexar(
+            arquivo, area=item.area, origem=f"catalogo:{item.origem}",
+            licenca=licenca, url=url,
+        )
+    except Exception as exc:  # noqa: BLE001 - a rota nao pode cair por um item
+        # Indexacao falhou: o arquivo baixado ficaria orfao em biblioteca/.
+        arquivo.unlink(missing_ok=True)
+        log.warning("falha ao indexar %s: %s", arquivo.name, exc)
+        return ResultadoIngestao(arquivo=arquivo.name, titulo=titulo,
+                                 estado="erro", detalhe=f"falha ao indexar: {exc}")
+    if resultado.estado == "erro":
+        arquivo.unlink(missing_ok=True)
     if resultado.estado == "indexado":
         resultado.titulo = resultado.titulo or titulo
     return resultado

@@ -6,10 +6,17 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+# Toda lista vinda do cliente precisa de teto. Sem `max_length`, um corpo com
+# `{"fontes": ["arxiv"] * 100000}` vira cem mil chamadas HTTP de saida a partir
+# de uma unica requisicao — amplificacao contra as bases publicas e
+# esgotamento de memoria aqui dentro.
+MAX_FONTES = 12
+MAX_CARTOES = 500
+
 
 class PedidoPesquisa(BaseModel):
     pergunta: str = Field(min_length=2, max_length=500)
-    fontes: list[str] | None = None
+    fontes: list[str] | None = Field(default=None, max_length=MAX_FONTES)
     idioma: Literal["pt", "en"] = "pt"
     profundidade: Literal["rapida", "media", "profunda"] = "media"
     salvar: bool = True
@@ -17,13 +24,13 @@ class PedidoPesquisa(BaseModel):
 
 class PedidoFlashcards(BaseModel):
     pergunta: str = Field(min_length=2, max_length=500)
-    fontes: list[str] | None = None
+    fontes: list[str] | None = Field(default=None, max_length=MAX_FONTES)
     quantidade: int = Field(default=8, ge=1, le=20)
 
 
 class PedidoQuiz(BaseModel):
     pergunta: str = Field(min_length=2, max_length=500)
-    fontes: list[str] | None = None
+    fontes: list[str] | None = Field(default=None, max_length=MAX_FONTES)
     quantidade: int = Field(default=5, ge=1, le=15)
 
 
@@ -38,7 +45,7 @@ class PedidoPlano(BaseModel):
 class PedidoExplicacao(BaseModel):
     conceito: str = Field(min_length=2, max_length=300)
     nivel: Literal["iniciante", "intermediario", "avancado"] = "intermediario"
-    fontes: list[str] | None = None
+    fontes: list[str] | None = Field(default=None, max_length=MAX_FONTES)
 
 
 class PedidoBaralho(BaseModel):
@@ -55,7 +62,7 @@ class CartaoEntrada(BaseModel):
 
 
 class PedidoSalvarCartoes(BaseModel):
-    cartoes: list[CartaoEntrada]
+    cartoes: list[CartaoEntrada] = Field(max_length=MAX_CARTOES)
 
 
 class PedidoRevisao(BaseModel):
