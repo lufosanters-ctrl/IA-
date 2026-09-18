@@ -74,8 +74,6 @@ def _embaralhar(questao_bruta: dict[str, Any], sorteio: random.Random) -> Questa
         topicos=questao_bruta["topicos"],
         dificuldade=questao_bruta.get("dificuldade", 3),
         origem="parametrica",
-        conferida=True,
-        observacao_da_conferencia="gabarito calculado simbolicamente",
     )
 
 
@@ -235,9 +233,32 @@ def _solucao_anagrama(palavra: str, total: int, repeticoes: list[int], certo: An
 
 def _anagramas(sorteio: random.Random) -> dict[str, Any]:
     """Anagramas com letras repetidas: o erro classico e nao dividir."""
+    # Cinco palavras davam cinco enunciados no total. As repetições de cada
+    # uma foram contadas pelo próprio Python e conferidas contra a fórmula.
+    # Cinco palavras davam cinco enunciados no total: um treino curto
+    # esgotava o repertório. As repetições foram contadas pelo Python, e só
+    # entram palavras com DOIS ou mais grupos repetidos — com um só, o
+    # distrator "dividiu apenas pela maior repetição" coincidiria com o
+    # gabarito e a questão teria alternativa repetida.
     palavras = {
-        "ARARA": (5, [3, 2]), "BANANA": (6, [3, 2]), "MATEMATICA": (10, [3, 2, 2]),
-        "PARALELA": (8, [3, 2]), "ESTATISTICA": (11, [2, 3, 2, 2]),
+        "ARARA": (5, [3, 2]),
+        "BANANA": (6, [3, 2]),
+        "MATEMATICA": (10, [3, 2, 2]),
+        "PARALELA": (8, [3, 2]),
+        "ESTATISTICA": (11, [3, 2, 2, 2]),
+        "BATATA": (6, [3, 2]),
+        "CABECA": (6, [2, 2]),
+        "PAPAGAIO": (8, [3, 2]),
+        "GARRAFA": (7, [3, 2]),
+        "CARACOL": (7, [2, 2]),
+        "ENGENHARIA": (10, [2, 2, 2]),
+        "INTELIGENCIA": (12, [3, 2, 2]),
+        "MACARRAO": (8, [3, 2]),
+        "CACHORRO": (8, [2, 2, 2]),
+        "PROFESSORA": (10, [2, 2, 2]),
+        "ARARAQUARA": (10, [5, 3]),
+        "SOCIOLOGIA": (10, [3, 2]),
+        "ALEATORIO": (9, [2, 2]),
     }
     palavra = sorteio.choice(list(palavras))
     total, repeticoes = palavras[palavra]
@@ -277,43 +298,80 @@ def _anagramas(sorteio: random.Random) -> dict[str, Any]:
 
 def _trigonometrica(sorteio: random.Random) -> dict[str, Any]:
     """Equacao trigonometrica: a armadilha e dar so a solucao principal."""
-    casos = [
-        (sp.Rational(1, 2), "\\frac{1}{2}", ["\\frac{\\pi}{6}", "\\frac{5\\pi}{6}"]),
-        (sp.sqrt(2) / 2, "\\frac{\\sqrt{2}}{2}", ["\\frac{\\pi}{4}", "\\frac{3\\pi}{4}"]),
-        (sp.sqrt(3) / 2, "\\frac{\\sqrt{3}}{2}", ["\\frac{\\pi}{3}", "\\frac{2\\pi}{3}"]),
+    # Três valores notáveis davam três enunciados no total, e um treino de
+    # quatro itens esgotava o repertório. Cruzar o valor com a função e com o
+    # sinal multiplica as combinações sem mudar o erro-alvo.
+    valores = [
+        (sp.Rational(1, 2), "\\frac{1}{2}"),
+        (sp.sqrt(2) / 2, "\\frac{\\sqrt{2}}{2}"),
+        (sp.sqrt(3) / 2, "\\frac{\\sqrt{3}}{2}"),
     ]
-    valor, valor_tex, raizes = sorteio.choice(casos)
-    certo = f"$\\left\\{{{raizes[0]},\\ {raizes[1]}\\right\\}}$"
+    valor, valor_tex = sorteio.choice(valores)
+    if sorteio.choice([False, True]):
+        valor, valor_tex = -valor, f"-{valor_tex}"
+
+    x = sp.Symbol("x", real=True)
+    if sorteio.choice([True, False]):
+        funcao, funcao_tex, funcao_sp = "seno", "\\mathrm{sen}\\,x", sp.sin
+        simetria = "\\mathrm{sen}(\\pi - a) = \\mathrm{sen}\\,a"
+    else:
+        funcao, funcao_tex, funcao_sp = "cosseno", "\\cos x", sp.cos
+        simetria = "\\cos(2\\pi - a) = \\cos a"
+
+    # As raízes vêm do SymPy, na forma simplificada. Escrevê-las à mão como
+    # "2\\pi - \\frac{\\pi}{3}" produzia gabarito certo porém não conferível:
+    # o confrontador compara valores, e a forma não reduzida não casava.
+    raizes = sorted(
+        sp.solveset(sp.Eq(funcao_sp(x), valor), x, sp.Interval(0, 2 * sp.pi)),
+        key=float,
+    )
+    if len(raizes) != 2:
+        # Fora do esperado para valores notáveis; cai no molde de polinômio.
+        return _girard(sorteio)
+    tex = [sp.latex(r) for r in raizes]
+    quadrante = [_quadrante(r) for r in raizes]
+
+    certo = f"$\\left\\{{{tex[0]},\\ {tex[1]}\\right\\}}$"
     return {
         "enunciado": (
-            f"Determine o conjunto solução de $\\mathrm{{sen}}\\,x = {valor_tex}$ "
+            f"Determine o conjunto solução de ${funcao_tex} = {valor_tex}$ "
             f"no intervalo $[0, 2\\pi]$."
         ),
         "alternativas": [
             certo,
-            f"$\\left\\{{{raizes[0]}\\right\\}}$",
-            f"$\\left\\{{{raizes[0]},\\ {raizes[1]},\\ \\pi\\right\\}}$",
-            f"$\\left\\{{{raizes[0]},\\ -{raizes[0]}\\right\\}}$",
+            f"$\\left\\{{{tex[0]}\\right\\}}$",
+            f"$\\left\\{{{tex[0]},\\ {tex[1]},\\ \\pi\\right\\}}$",
+            f"$\\left\\{{{tex[0]},\\ {sp.latex(-raizes[0])}\\right\\}}$",
         ],
         "correta": 0,
         "erros": [
             "-",
-            "deu apenas o arco principal, perdendo a solução do segundo quadrante",
+            "deu apenas o arco principal, perdendo a segunda solução do intervalo",
             "incluiu uma raiz que não satisfaz a equação",
-            "usou simetria em relação à origem, que vale para a tangente, não para o seno",
+            f"usou simetria em relação à origem, que vale para a tangente, "
+            f"não para o {funcao}",
         ],
         "ideia": (
-            "No ciclo, o seno assume o mesmo valor positivo em dois quadrantes: "
-            "o primeiro e o segundo. Parar no arco principal perde metade da resposta."
+            f"No ciclo, o {funcao} assume o mesmo valor em dois quadrantes: o "
+            f"{quadrante[0]} e o {quadrante[1]}. Parar no arco principal perde "
+            "metade da resposta."
         ),
         "solucao": (
-            f"$\\mathrm{{sen}}\\,x = {valor_tex}$ tem, em $[0,2\\pi]$, as soluções "
-            f"$x = {raizes[0]}$ (primeiro quadrante) e $x = {raizes[1]}$ "
-            f"(segundo quadrante, pois $\\mathrm{{sen}}(\\pi - a) = \\mathrm{{sen}}\\,a$)."
+            f"${funcao_tex} = {valor_tex}$ tem, em $[0,2\\pi]$, as soluções "
+            f"$x = {tex[0]}$ ({quadrante[0]} quadrante) e $x = {tex[1]}$ "
+            f"({quadrante[1]} quadrante, pois ${simetria}$)."
         ),
         "topicos": ["trigonometria", "equações trigonométricas"],
         "dificuldade": 2,
     }
+
+
+def _quadrante(angulo: Any) -> str:
+    """Em que quadrante do ciclo o arco cai."""
+    valor = float(angulo)
+    meia = float(sp.pi) / 2
+    nomes = ("primeiro", "segundo", "terceiro", "quarto")
+    return nomes[min(3, int(valor // meia))]
 
 
 def _logaritmo(sorteio: random.Random) -> dict[str, Any]:
@@ -369,10 +427,21 @@ GERADORES: dict[str, Callable[[random.Random], dict[str, Any]]] = {
 
 
 def criar_parametrica(topico: str = "", semente: int | None = None) -> Questao:
-    """Gera uma questao de molde, com gabarito calculado simbolicamente."""
+    """Gera uma questao de molde e CONFERE o gabarito antes de devolver.
+
+    Marcar `conferida=True` sem rodar a conferência era um selo não ganho: a
+    tela dizia "✓ gabarito conferido" para uma questão que ninguém tinha
+    checado. Agora a conferência roda de verdade, e o que ela apurar é o que
+    aparece na tela — inclusive quando o que ela apura é "não deu para
+    conferir a álgebra, só a estrutura".
+    """
     sorteio = random.Random(semente)
     gerador = GERADORES.get(topico) or sorteio.choice(list(GERADORES.values()))
-    return _embaralhar(gerador(sorteio), sorteio)
+    questao = _embaralhar(gerador(sorteio), sorteio)
+    valida, observacao = conferir_questao(questao)
+    questao.conferida = valida
+    questao.observacao_da_conferencia = observacao
+    return questao
 
 
 # --------------------------------------------------------------------------

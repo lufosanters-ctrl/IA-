@@ -1652,9 +1652,16 @@
             ${q.origem === "neural" ? "criada pelo modelo" : "molde paramétrico"}</span>
           <span class="pilula">nível ${q.dificuldade}</span>
           ${(q.topicos || []).map((t) => `<span class="pilula">${escapar(t)}</span>`).join("")}
+          <!-- O selo diz o que a conferência realmente apurou. "Conferido"
+               para uma checagem que só olhou a estrutura seria um selo não
+               ganho, e é justamente o gabarito que o estudante confia. -->
           <span class="selo-gabarito ${q.conferida ? "" : "nao"}"
                 title="${escapar(q.observacao_da_conferencia || "")}">
-            ${q.conferida ? "✓ gabarito conferido" : "⚠ gabarito não conferido"}</span>
+            ${q.conferida
+              ? (String(q.observacao_da_conferencia || "").includes("sem equação")
+                  ? "✓ estrutura conferida"
+                  : "✓ gabarito conferido pela álgebra")
+              : "⚠ gabarito não conferido"}</span>
         </div>
         <div class="questao">
           <p class="questao-enunciado"><span>${markdownComFormulas(q.enunciado)}</span></p>

@@ -128,8 +128,37 @@ def _higienizar(bruto: str) -> str:
     return texto
 
 
+# Notação LaTeX que aparece solta no enunciado (fora de cifrões) e que a
+# varredura por token descartava inteira, porque `\`, `{` e `}` não passam
+# pelo filtro de caracteres. Sem isto, "Resolva \frac{x+1}{x-1}=3" virava
+# "nenhuma equação explícita".
+def desfazer_latex(texto: str) -> str:
+    """Traduz o LaTeX mais comum para a sintaxe que o interpretador lê."""
+    saida = texto or ""
+    # Frações aninhadas exigem mais de uma passada: a interna some primeiro.
+    for _ in range(3):
+        saida = re.sub(r"\\d?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}",
+                       r"((\1)/(\2))", saida)
+    saida = re.sub(r"\\sqrt\s*\[([^\]]*)\]\s*\{([^{}]*)\}", r"((\2)**(1/(\1)))", saida)
+    saida = re.sub(r"\\sqrt\s*\{([^{}]*)\}", r"sqrt(\1)", saida)
+    # "log_2(x)" e "\log_{2}(x)" viram a mudança de base escrita por extenso.
+    # A forma de dois argumentos `log(x, 2)` é reinterpretada pela
+    # multiplicação implícita do parser e vira `log(2*x)`.
+    saida = re.sub(r"\\?log_\{?(\d+)\}?\s*\(([^()]*)\)",
+                   r"(ln(\2)/ln(\1))", saida)
+    saida = re.sub(r"\\(sin|cos|tan|log|ln|exp|sen|tg)\b", r"\1", saida)
+    saida = re.sub(r"\\left|\\right|\\,|\\!|\\;|\\cdot", " ", saida)
+    saida = saida.replace("\\times", "*").replace("\\div", "/")
+    saida = re.sub(r"\\pi\b", "pi", saida)
+    # "|x-2|" é módulo. Só converte pares na mesma linha, para não casar com
+    # uma barra solta do texto.
+    saida = re.sub(r"\|([^|\n]{1,40})\|", r"Abs(\1)", saida)
+    return saida
+
+
 def _normalizar(texto: str) -> str:
     """Converte notacao escrita a mao para a que o interpretador entende."""
+    texto = desfazer_latex(texto)
     texto = texto.replace("²", "^2").replace("³", "^3")
     # "√9" precisa virar "sqrt(9)". Sem os parênteses, "sqrt9" seria lido como
     # o produto s·q·r·t·9 pela multiplicação implícita.
@@ -266,7 +295,10 @@ def _trechos_matematicos(texto: str) -> list[str]:
     corrente: list[str] = []
 
     for bruto in re.split(r"\s+", texto or ""):
-        token = bruto.strip()
+        # "0?" e "0." não são tokens matemáticos, e terminar a pergunta com
+        # "= 0?" é o jeito normal de escrever. A pontuação de frase sai antes
+        # do teste; o "!" fica, porque é fatorial.
+        token = bruto.strip().rstrip("?.,;:")
         if not token:
             continue
         if _e_token_matematico(token):
@@ -320,6 +352,7 @@ def _candidatos_a_equacao(texto: str) -> list[str]:
 def extrair_equacoes(enunciado: str, maximo: int = 6) -> list[sp.Eq]:
     """Acha as igualdades presentes no texto do problema."""
     base_log = base_do_logaritmo(enunciado)
+    enunciado = desfazer_latex(enunciado or "")
     candidatos: list[str] = []
     # O que vem entre cifrões é matemática declarada: entra sem filtro.
     for achado in _RE_LATEX.findall(enunciado or ""):
@@ -779,6 +812,12 @@ def conferir_resposta(enunciado: str, resposta: str) -> list[Checagem]:
         solucoes = resolver(equacao, livres[0])
         reais = [s for s in solucoes if not s.free_symbols and s.is_real]
         if not reais:
+            continue
+        # O confronto compara NÚMEROS escritos no texto. Raiz simbólica
+        # ("5*pi/3", "sqrt(2)") não é um número que apareça na resposta: o
+        # que essa comparação produz é um "não confere" falso. Onde não dá
+        # para comparar, o certo é não opinar.
+        if any(not s.is_rational for s in reais):
             continue
 
         exatas = set()

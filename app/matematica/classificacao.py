@@ -288,7 +288,35 @@ _SINAIS_DIFICULDADE: tuple[tuple[str, float, str], ...] = (
     (r"\bpelo menos\b|\bno m[áa]ximo\b|\bexatamente\b|\bnenhum[a]?\b", 0.6,
      "restrição de contagem"),
     (r"\bITA\b|\bIME\b|\bolimp[íi]ada\b|\bIMO\b|\bOBM\b", 1.5, "prova de alto nível"),
+    # Sinais que faltavam. Sem eles, TODO problema de vestibular caía em
+    # dificuldade 1 ("aplicação direta de fórmula"), e como a crítica interna
+    # e a escolha entre estratégias exigem dificuldade >= 3, as duas partes
+    # mais caras e mais úteis da arquitetura nunca rodavam justamente nos
+    # problemas que precisavam delas.
+    (r"\braz[ãa]o entre\b|\bqu[ao]ciente entre\b|\bpropor[çc][ãa]o entre\b", 0.9,
+     "pede uma razão, não um valor direto"),
+    (r"\binscrit[oa]\b|\bcircunscrit[oa]\b|\btangente\b|\bconc[êe]ntric",
+     0.8, "configuração geométrica a montar"),
+    (r"\bformam? (?:uma )?(?:PA|PG|progress[ãa]o)\b|\bem (?:PA|PG)\b", 0.8,
+     "condição de progressão sobre os dados"),
+    (r"\bsabendo que\b.*\be que\b|\bsabendo que\b.*\bal[ée]m disso\b", 0.8,
+     "várias condições encadeadas"),
+    (r"\bsoma (?:dos|das|de)\b|\bproduto (?:dos|das|de)\b", 0.5,
+     "pede uma função das soluções, não as soluções"),
+    (r"\bem fun[çc][ãa]o de\b|\bem termos de\b", 0.9, "resposta simbólica"),
+    (r"\bconjunto (?:dos|de todos)\b|\blugar dos pontos\b", 0.8,
+     "caracterização de conjunto"),
 )
+
+def _tem_equacao_legivel(enunciado: str) -> bool:
+    """A álgebra consegue extrair alguma equação deste enunciado?"""
+    from .simbolico import ErroSimbolico, extrair_equacoes
+
+    try:
+        return bool(extrair_equacoes(enunciado, maximo=1))
+    except (ErroSimbolico, Exception):  # noqa: B014 - classificar nunca falha
+        return False
+
 
 NIVEIS = {
     1: ("direto", "aplicação direta de uma definição ou fórmula"),
@@ -375,20 +403,36 @@ def _pontuar_topicos(enunciado: str) -> list[tuple[float, Topico]]:
 def _notacao(enunciado: str) -> list[str]:
     """Sinais dados pela notação, que o vocabulário sozinho não pega."""
     marcas: list[str] = []
-    if re.search(r"∫|\bintegral\b", enunciado):
+    # `\int_0^1`: o "_" é caractere de palavra, então `\bint\b` não casa
+    # depois de "int". Sem a barra final, a marca nunca disparava em LaTeX.
+    if re.search(r"∫|\bintegral\b|\\int|\\lim|\\frac\{d|\bderivada\b", enunciado):
         marcas.append("calculo")
     if re.search(r"\bd/dx\b|\bf'\(|\by'\b", enunciado):
         marcas.append("calculo")
     if re.search(r"\blim\b|→|\bx\s*->|\btende a\b|\btendendo a\b", enunciado):
         marcas.append("calculo")
-    # "algo elevado ao quadrado igualado a zero" é equação polinomial.
+    # "algo elevado ao quadrado igualado a zero" é equação polinomial — salvo
+    # quando há DUAS variáveis ao quadrado, que é a equação de uma cônica:
+    # "x² + y² - 6x + 8y = 0" é uma circunferência, não um polinômio a
+    # resolver.
     if re.search(r"[\^²³]\s*\d?[^=]{0,40}=\s*0\b", enunciado):
-        marcas.append("polinomios")
+        conica = re.search(
+            r"x\s*[\^²]\s*2?.{0,30}y\s*[\^²]\s*2?|y\s*[\^²]\s*2?.{0,30}x\s*[\^²]\s*2?",
+            enunciado, re.IGNORECASE,
+        )
+        marcas.append("geometria_analitica" if conica else "polinomios")
     if re.search(r"\b[zZ]\s*=.*\bi\b|\b\d\s*\+\s*\d?\s*i\b|\bcis\b", enunciado):
         marcas.append("complexos")
     if re.search(r"Σ|\bsomatorio\b|\bsomatório\b", enunciado):
         marcas.append("sequencias")
-    if re.search(r"\bC\(\s*\d+\s*,|\bbinom|\b\d+!\B|\bP\(\s*[A-Z]", enunciado):
+    if re.search(r"\bC\(\s*\d+\s*,|\bbinom|\b\d+!\B", enunciado):
+        marcas.append("combinatoria")
+    # "P(A)" é probabilidade do evento A; "P(n, k)" é arranjo. O que decide é
+    # o segundo argumento: letra maiúscula e barra de condicional são notação
+    # de probabilidade, número é notação de contagem.
+    if re.search(r"\bP\(\s*[A-Z]\s*[|)∩∪]|\bP\(\s*[A-Z]\s*\)", enunciado):
+        marcas.append("probabilidade")
+    elif re.search(r"\bP\(\s*\d+\s*,", enunciado):
         marcas.append("combinatoria")
     # Matriz: colchete aninhado, linhas separadas por ";" ou determinante.
     # Um colchete simples como "[0, 2pi]" e intervalo, nao matriz — a regex
@@ -441,6 +485,14 @@ def classificar(enunciado: str) -> Diagnostico:
         pontos += 0.4
         sinais.append("muitas condições")
 
+    # Parâmetros literais no lugar de números ("raio R", "lados a, b, c") são
+    # marca de problema geral, não de substituição em fórmula.
+    literais = set(re.findall(r"(?<![A-Za-zÀ-ÿ])([A-Za-z])(?![A-Za-zÀ-ÿ0-9])", enunciado))
+    literais -= {"a", "e", "o", "A", "E", "O", "x", "y", "z"}
+    if len(literais) >= 3:
+        pontos += 0.7
+        sinais.append("vários parâmetros literais")
+
     if pontos >= 4.0:
         nivel = 4
     elif pontos >= 2.6:
@@ -449,6 +501,13 @@ def classificar(enunciado: str) -> Diagnostico:
         nivel = 2
     else:
         nivel = 1
+
+    # Piso honesto: um problema de matemática do qual a álgebra não consegue
+    # extrair equação nenhuma exige modelagem — e modelagem nunca é
+    # "aplicação direta de uma definição".
+    if nivel == 1 and principal != TOPICO_PADRAO and not _tem_equacao_legivel(enunciado):
+        nivel = 2
+        sinais.append("exige modelar o enunciado antes de calcular")
 
     nome, descricao = NIVEIS[nivel]
     pede_demonstracao = bool(
