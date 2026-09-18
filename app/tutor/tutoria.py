@@ -293,6 +293,22 @@ class RespostaTutor:
 
 # Mecanismo de cada tópico, enunciado SEM veredito. É o que pode aparecer nos
 # degraus intermediários: a regra geral, nunca a conclusão sobre a frase.
+# `topicos_envolvidos` chega com o rótulo que o estudante lê ("regência",
+# "colocação pronominal"); as chaves abaixo são internas. Sem esta ponte, o
+# `.get` caía sempre no padrão e quem perguntava sobre colocação pronominal
+# recebia a explicação de regência.
+CHAVE_DO_ROTULO: dict[str, str] = {
+    "crase": "crase",
+    "regência": "regencia",
+    "regencia": "regencia",
+    "colocação pronominal": "colocacao",
+    "colocacao pronominal": "colocacao",
+    "colocacao": "colocacao",
+    "concordância": "concordancia",
+    "concordancia": "concordancia",
+}
+
+
 MECANISMOS: dict[str, tuple[str, str]] = {
     "crase": (
         "A crase só existe quando DUAS condições valem ao mesmo tempo: o termo "
@@ -330,8 +346,9 @@ def _ajuda_portugues(nivel: int, contexto: ContextoVerificado) -> str:
     gramatica = contexto.dados.get("gramatica", {})
     achados = gramatica.get("achados", [])
     topicos = gramatica.get("topicos_envolvidos", [])
-    principal = topicos[0] if topicos else "regencia"
-    mecanismo, teste = MECANISMOS.get(principal, MECANISMOS["regencia"])
+    rotulo = topicos[0] if topicos else "regência"
+    principal = CHAVE_DO_ROTULO.get(rotulo, "regencia")
+    mecanismo, teste = MECANISMOS[principal]
 
     if nivel == 0:
         nomes = ", ".join(topicos) or "sintaxe"
@@ -349,13 +366,17 @@ def _ajuda_portugues(nivel: int, contexto: ContextoVerificado) -> str:
         return mecanismo
     if nivel == 3:
         return f"{mecanismo}\n\n**Teste a aplicar:** {teste}"
-    if nivel in (4, 5):
+    if nivel == 4:
+        # Localizar: diz ONDE olhar, ainda sem aplicar nada.
         alvo = achados[0]["trecho"] if achados else ""
         return (
-            f"O ponto a examinar é: **{alvo}**.\n\n{teste}\n\n"
-            "Aplique o teste nesse trecho e veja o que sai. Qual das duas "
-            "condições você consegue confirmar?"
+            f"O ponto a examinar é: **{alvo}**.\n\n"
+            "Não é a frase toda — é esse trecho. Releia só ele e diga o que "
+            "está acontecendo ali."
         )
+    if nivel == 5:
+        # Aplicar: o teste já começa feito, mas a conclusão fica com o aluno.
+        return _teste_comecado(achados, teste, principal)
 
     # Degrau 6: agora sim, o veredito completo.
     if not achados:
@@ -367,6 +388,69 @@ def _ajuda_portugues(nivel: int, contexto: ContextoVerificado) -> str:
         if achado.get("teste"):
             linhas.append(f"_Teste:_ {achado['teste']}")
     return "\n\n".join(linhas)
+
+
+# A troca de gênero que o teste da crase pede. O par é escolhido para não
+# mudar o sentido da frase de forma perceptível.
+_MASCULINO_DE_APOIO = {
+    "praia": "mar", "escola": "colégio", "casa": "lar", "aula": "curso",
+    "reunião": "encontro", "questão": "problema", "professora": "professor",
+    "diretora": "diretor", "cidade": "município", "festa": "baile",
+    "prova": "exame", "mesa": "balcão", "rua": "beco", "loja": "mercado",
+}
+
+
+def _teste_comecado(achados: list[dict[str, Any]], teste: str,
+                    principal: str) -> str:
+    """O degrau 5: o teste aplicado até a penúltima linha.
+
+    A diferença entre este degrau e o anterior é o que separa uma escada de
+    uma lista: no 4 o estudante sabe ONDE olhar, no 5 ele já tem o teste
+    montado e falta só ler o resultado. A conclusão continua sendo dele.
+    """
+    alvo = achados[0]["trecho"] if achados else ""
+    if principal == "crase":
+        termo = ""
+        for achado in achados:
+            if achado.get("topico", "").startswith("crase"):
+                termo = achado.get("trecho", "")
+                break
+        palavras = [p.strip(" .,;:!?") for p in (termo or alvo).split()]
+        feminino = next(
+            (p for p in palavras if p.lower() in _MASCULINO_DE_APOIO), ""
+        )
+        if feminino:
+            masculino = _MASCULINO_DE_APOIO[feminino.lower()]
+            return (
+                f"Aplique a troca: no lugar de “{feminino}”, ponha "
+                f"“{masculino}”.\n\nA frase fica com **“ao {masculino}”** ou "
+                f"com **“o {masculino}”**? Responda essa e você respondeu a "
+                "sua, porque “ao” é exatamente preposição + artigo."
+            )
+    if principal == "regencia":
+        return (
+            f"Olhe só para o verbo em **{alvo}** e responda em duas etapas:\n\n"
+            "1. Em que sentido ele está empregado aqui?\n"
+            "2. Nesse sentido, o complemento vem com preposição ou sem?\n\n"
+            "A segunda resposta decide a frase inteira."
+        )
+    if principal == "colocacao":
+        return (
+            f"Percorra as três palavras antes do verbo em **{alvo}**. Há entre "
+            "elas alguma negação, advérbio, pronome relativo, indefinido, "
+            "demonstrativo ou conjunção subordinativa?\n\n"
+            "Se houver, a posição do pronome já está decidida."
+        )
+    if principal == "concordancia":
+        return (
+            f"Em **{alvo}**, pergunte “quem pratica a ação?”.\n\n"
+            "Se você não conseguir nomear ninguém, o verbo é impessoal — e "
+            "verbo impessoal não vai para o plural."
+        )
+    return (
+        f"Aplique o teste em **{alvo}**:\n\n{teste}\n\n"
+        "Qual das duas condições você consegue confirmar?"
+    )
 
 
 def _ajuda_matematica(nivel: int, contexto: ContextoVerificado) -> str:
@@ -398,15 +482,19 @@ def _ajuda_matematica(nivel: int, contexto: ContextoVerificado) -> str:
     if nivel == 3 and estrategias:
         lista = "\n".join(f"- {e}" for e in estrategias[:3])
         return f"Os caminhos plausíveis aqui são:\n{lista}\n\nEscolha um e vá até o fim."
-    if nivel in (4, 5):
+    if nivel == 4:
         equacoes = analise.get("equacoes_latex") or analise.get("equacoes") or []
         if equacoes:
             return (
                 "Primeiro passo: traduzir o enunciado para linguagem simbólica. "
                 f"A leitura automática dá:\n\n$${equacoes[0]}$$\n\n"
-                "O que você faz com essa equação agora?"
+                "Confira se é isso mesmo que o enunciado diz. O que você faz "
+                "com essa equação agora?"
             )
         return "Monte a equação que traduz o enunciado. Qual grandeza vira a incógnita?"
+    if nivel == 5:
+        # O movimento seguinte, nomeado, sem executar a conta.
+        return _primeiro_movimento(analise, diagnostico, verificacoes, nome)
 
     # Degrau 6: entrega o que a álgebra computacional apurou.
     solucoes = analise.get("solucoes_latex") or analise.get("solucoes") or {}
@@ -440,6 +528,45 @@ def _ajuda_matematica(nivel: int, contexto: ContextoVerificado) -> str:
     )
 
 
+def _primeiro_movimento(analise: dict[str, Any], diagnostico: dict[str, Any],
+                        verificacoes: list[Any], nome: str) -> str:
+    """O degrau 5 de matemática: o movimento seguinte, nomeado, não executado.
+
+    O degrau 4 traduz o enunciado; este diz o que fazer com a tradução. A
+    conta continua sendo do estudante — dizer "fatore" é diferente de
+    entregar a fatoração.
+    """
+    equacoes = analise.get("equacoes_latex") or analise.get("equacoes") or []
+    grau = analise.get("grau")
+    if equacoes and grau == 2:
+        return (
+            "Com a equação montada, o movimento seguinte é escolher entre dois "
+            "caminhos:\n\n"
+            "- **soma e produto** (Girard): procure dois números cuja soma e "
+            "cujo produto sejam os coeficientes;\n"
+            "- **fórmula resolutiva**: calcule primeiro o discriminante.\n\n"
+            "O primeiro é mais rápido quando as raízes são inteiras. Faça a "
+            "conta e volte com o que achou."
+        )
+    if equacoes:
+        return (
+            "Agora isole a incógnita passo a passo, mantendo a igualdade a "
+            "cada linha. Escreva a primeira transformação que você aplicaria "
+            f"em $${equacoes[0]}$$ e por que ela é válida."
+        )
+    if verificacoes:
+        return (
+            "Antes de seguir, decida COMO vai conferir o resultado no fim: "
+            f"{verificacoes[0]}.\n\nSaber a checagem de antemão costuma "
+            "revelar o caminho da solução."
+        )
+    return (
+        f"Escolha uma das estratégias de {nome.lower()} e execute o primeiro "
+        "passo dela por escrito. Se ele não levar a lugar nenhum em três "
+        "linhas, o caminho era outro — e você já sabe qual descartar."
+    )
+
+
 def _ajuda_ingles(nivel: int, contexto: ContextoVerificado) -> str:
     """Ajuda de inglês; a correção só no último degrau."""
     avaliacoes = contexto.dados.get("avaliacoes", [])
@@ -467,16 +594,52 @@ def _ajuda_ingles(nivel: int, contexto: ContextoVerificado) -> str:
             f"- {c['exemplo_a']}\n- {c['exemplo_b']}\n\n"
             "Compare a sua frase com esses dois exemplos."
         )
-    if nivel in (2, 3, 4, 5) and avaliacoes:
+    if nivel == 2 and avaliacoes:
         return (
             "Há uma construção nesta frase que vem da estrutura do português, "
             "não do inglês. Releia procurando onde a tradução foi palavra por "
             "palavra.\n\nQual trecho você mudaria?"
         )
-    if nivel in (4, 5):
+    if nivel == 3 and avaliacoes:
+        return (
+            "O erro é de **transferência**: uma estrutura do português "
+            "transplantada para o inglês. Costuma aparecer em três lugares — "
+            "a preposição que o verbo pede, o verbo escolhido para a ideia "
+            "(ter x ser, fazer x do/make) e o número do substantivo "
+            "(contável x incontável).\n\n"
+            "Em qual dos três a sua frase se encaixa?"
+        )
+    if nivel == 4:
+        if avaliacoes:
+            return (
+                f"O trecho a examinar é **“{avaliacoes[0]['construcao']}”**.\n\n"
+                "O resto da frase está bem. Concentre-se só nessas palavras: "
+                "como um falante nativo diria essa parte?"
+            )
         return (
             "Reescreva a frase começando pelo verbo principal e conferindo, um "
             "a um: sujeito, tempo verbal, preposição."
+        )
+    if nivel == 5:
+        if avaliacoes:
+            a = avaliacoes[0]
+            gramatical = a.get("grammaticality", "")
+            if gramatical == "ambíguo":
+                return (
+                    f"**“{a['construcao']}”** existe em inglês, mas costuma "
+                    "significar outra coisa.\n\nTraduza o trecho ao pé da "
+                    "letra, do inglês para o português, e compare com o que "
+                    "você queria dizer. Bate?"
+                )
+            return (
+                f"Em **“{a['construcao']}”**, o problema não é de vocabulário: "
+                "é de estrutura.\n\nPergunte-se qual das cinco dimensões "
+                "falha aqui — a regra proíbe, o sentido muda, ou só soa "
+                "estranho? A resposta indica o que trocar."
+            )
+        return (
+            "Percorra a frase uma vez para cada dimensão: gramaticalidade, "
+            "sentido, naturalidade, registro. Em qual delas você trava?"
         )
 
     # Degrau 6.
