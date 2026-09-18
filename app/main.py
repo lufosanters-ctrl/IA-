@@ -34,6 +34,7 @@ from .matematica.criacao import GERADORES, criar as criar_questao
 from .matematica.resolucao import Problema, dar_pista, resolver as resolver_problema
 from .livros import FORMATOS, nome_de_arquivo_seguro
 from .cache import CacheTTL
+from .console import preparar_saida
 from .config import obter_config
 from .schemas import (
     PedidoBaralho,
@@ -70,6 +71,10 @@ cfg = obter_config()
 
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI):
+    # Quem sobe com `uvicorn app.main:app` não passa pelo `python -m app`, e
+    # portanto não prepararia a saída. Os registros do servidor acabariam num
+    # console em cp1252 sem nenhuma proteção.
+    preparar_saida()
     banco.iniciar_banco()
     tutor.iniciar_banco_tutor()
     biblioteca.iniciar()

@@ -463,7 +463,11 @@ _NOMES_RESERVADOS = {
     *(f"lpt{n}" for n in range(1, 10)),
 }
 
-_MAX_NOME = 120
+# O Windows limita o caminho INTEIRO a 260 caracteres sem uma configuração
+# que quase ninguém liga. Com o nome em 90, sobra folga para uma pasta funda
+# do tipo "C:\Users\Fulano de Tal\OneDrive - Escola\Documentos\Projetos\IA-",
+# mais o prefixo do arquivo temporário e o sufixo de desambiguação.
+_MAX_NOME = 90
 
 
 def nome_de_arquivo_seguro(bruto: str, padrao: str = "livro") -> str:

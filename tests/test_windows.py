@@ -419,3 +419,28 @@ def test_upload_usa_temporario_unico_por_requisicao():
     assert '.parcial"' in fonte
     assert 'f".{nome}.parcial"' not in fonte, "o temporário depende do nome enviado"
     assert "uuid4().hex" in fonte
+
+
+def test_caminho_completo_cabe_no_limite_do_windows():
+    """O Windows limita o caminho inteiro a 260 caracteres sem opt-in.
+
+    O pior caso é uma pasta funda do OneDrive corporativo mais o nome máximo,
+    o prefixo do arquivo temporário e o sufixo de desambiguação.
+    """
+    from app.livros import _MAX_NOME
+
+    titulo = (
+        "Introdução ao Cálculo Diferencial e Integral com Aplicações em "
+        "Física e Engenharia - Volume 2 - Edição Revisada e Ampliada.pdf"
+    )
+    nome = nome_de_arquivo_seguro(titulo)
+    pasta = "C:\\Users\\Fulano de Tal\\OneDrive - Escola\\Documentos\\Projetos\\IA-\\biblioteca"
+    pior_caso = len(pasta) + 1 + len(".") + len(nome) + len(".parcial") + len(" (999)")
+    assert pior_caso < 260, f"{pior_caso} caracteres"
+    assert _MAX_NOME <= 90
+
+
+def test_servidor_prepara_a_saida_mesmo_sem_o_ponto_de_entrada():
+    """`uvicorn app.main:app` não passa por `python -m app`."""
+    fonte = (RAIZ / "app" / "main.py").read_text(encoding="utf-8")
+    assert "preparar_saida()" in fonte
