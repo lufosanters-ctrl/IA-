@@ -302,3 +302,16 @@ def test_iniciadores_do_windows_conferem_o_resultado_da_instalacao():
     for nome, marca in (("iniciar.ps1", "LASTEXITCODE"), ("iniciar.bat", "errorlevel")):
         texto = (RAIZ / nome).read_text(encoding="utf-8-sig")
         assert marca in texto, f"{nome} não confere o resultado da instalação"
+
+
+def test_git_guarda_lf_e_entrega_crlf_no_windows():
+    """`.gitattributes` decide a quebra de linha do clone, não o sistema.
+
+    Sem isso, o Git do Windows converte tudo para CRLF na cópia de trabalho e
+    o `iniciar.sh` deixa de rodar no WSL; ou converte tudo para LF e o
+    `iniciar.bat` falha nos blocos de várias linhas.
+    """
+    regras = (RAIZ / ".gitattributes").read_text(encoding="utf-8")
+    for extensao in ("*.bat", "*.cmd", "*.ps1"):
+        assert f"{extensao}" in regras and "eol=crlf" in regras
+    assert "*.sh" in regras and "eol=lf" in regras
