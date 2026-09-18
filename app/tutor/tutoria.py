@@ -92,7 +92,44 @@ def detectar_materia(enunciado: str) -> str:
         pontos["matematica"] += 1.5
 
     melhor = max(pontos, key=lambda chave: pontos[chave])
-    return melhor if pontos[melhor] > 0 else "geral"
+    if pontos[melhor] > 0:
+        return melhor
+
+    # Nada pontuou: nenhum vocabulário metalinguístico, nenhuma equação. Mas
+    # "Prefiro café do que chá. Está certo?" é pergunta de português — só que
+    # feita sem usar a palavra "regência". Aqui os próprios motores decidem:
+    # se eles chegam a um veredito firme sobre a frase, o assunto é português.
+    return "portugues" if _motores_reconhecem(enunciado) else "geral"
+
+
+# Pedidos que, somados a um veredito dos motores, confirmam a intenção.
+_PEDIDOS_DE_CORRECAO = (
+    "esta certo", "está certo", "corrija", "corrigir", "tem erro", "ha erro",
+    "há erro", "qual a forma correta", "qual e a forma correta",
+    "qual é a forma correta", "isso esta certo", "escrevi certo",
+    "revise", "revisar", "certo ou errado", "esta correta", "está correta",
+)
+
+
+def _motores_reconhecem(enunciado: str) -> bool:
+    """Os motores de português chegam a um veredito firme sobre esta frase?
+
+    Só conta veredito FIRME: um "depende da regência" aparece em quase
+    qualquer frase com um "a" e não prova nada sobre a intenção de quem
+    perguntou.
+    """
+    analise = analisar_frase(enunciado)
+    firmes = [a for a in analise.achados if a.veredito in {"erro", "correto"}]
+    if not firmes:
+        return False
+    # Um erro apontado basta: frase errada de português é assunto de
+    # português, tenha ou não a palavra "crase" no enunciado.
+    if any(a.veredito == "erro" for a in firmes):
+        return True
+    # Só "correto" é sinal fraco — exige que a pessoa esteja mesmo pedindo
+    # correção, senão "Vou à praia" no meio de outra conversa viraria aula.
+    texto = normalizar(enunciado)
+    return any(normalizar(p) in texto for p in _PEDIDOS_DE_CORRECAO)
 
 
 # --------------------------------------------------------------------------

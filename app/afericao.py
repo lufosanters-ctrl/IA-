@@ -309,6 +309,17 @@ CASOS_MATERIA: tuple[Caso, ...] = (
     Caso("materia", "Qual é o objeto indireto da oração?", "portugues"),
     Caso("materia", "Is this sentence correct? She don't like it.", "ingles"),
     Caso("materia", "Quantos anagramas tem a palavra ARARA?", "matematica"),
+    # Pergunta de português feita SEM vocabulário metalinguístico: quem
+    # reconhece o assunto são os próprios motores.
+    Caso("materia", "Prefiro café do que chá. Está certo?", "portugues",
+         "erro de regência apontado pelos motores"),
+    Caso("materia", "Obedeço as regras. Corrija.", "portugues",
+         "erro de regência apontado pelos motores"),
+    Caso("materia", "Vou a praia.", "portugues", "erro de crase apontado"),
+    Caso("materia", "Vou à praia amanhã. Está certo?", "portugues",
+         "frase correta mais pedido explícito de correção"),
+    Caso("materia", "Oi, tudo bem?", "geral", "conversa, não questão"),
+    Caso("materia", "Calcule o volume de um tronco de cone.", "matematica"),
 )
 
 TODOS_OS_CASOS: tuple[Caso, ...] = (
