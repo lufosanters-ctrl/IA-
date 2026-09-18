@@ -156,7 +156,7 @@ def test_bat_usa_crlf_e_so_ascii():
 
 
 def test_bat_tem_blocos_balanceados():
-    texto = (RAIZ / "iniciar.bat").read_text()
+    texto = (RAIZ / "iniciar.bat").read_text(encoding="ascii")
     abre = len(re.findall(r"(?<!\^)\(", texto))
     fecha = len(re.findall(r"(?<!\^)\)", texto))
     assert abre == fecha, f"{abre} abre, {fecha} fecha"
@@ -168,7 +168,7 @@ def test_ps1_tem_bom():
 
 
 def test_gitattributes_fixa_as_quebras_de_linha():
-    texto = (RAIZ / ".gitattributes").read_text()
+    texto = (RAIZ / ".gitattributes").read_text(encoding="utf-8")
     assert "*.bat" in texto and "eol=crlf" in texto
     assert "*.sh" in texto and "eol=lf" in texto
 
@@ -204,3 +204,74 @@ def test_ajuda_da_cli_nao_estoura_em_console_antigo():
             env={**__import__("os").environ, "PYTHONIOENCODING": "cp850"},
         )
         assert resultado.returncode == 0, f"{modulo}: {resultado.stderr[-300:]}"
+
+
+# --------------------------------------------------------------------------
+# Regras que valem para o código inteiro
+# --------------------------------------------------------------------------
+
+def _chamadas_sem_encoding(arquivo: Path) -> list[int]:
+    """Linhas com leitura ou escrita de texto sem codificação declarada."""
+    texto = arquivo.read_text(encoding="utf-8")
+    achados: list[int] = []
+    for achado in re.finditer(r"\.(?:write_text|read_text)\s*\(", texto):
+        # Percorre até fechar o parêntese: a codificação costuma vir na linha
+        # seguinte, em chamada de várias linhas.
+        nivel, fim = 0, len(texto)
+        for posicao in range(achado.start(), min(achado.start() + 600, len(texto))):
+            if texto[posicao] == "(":
+                nivel += 1
+            elif texto[posicao] == ")":
+                nivel -= 1
+                if nivel == 0:
+                    fim = posicao
+                    break
+        if "encoding" not in texto[achado.start():fim]:
+            achados.append(texto[:achado.start()].count("\n") + 1)
+    return achados
+
+
+def test_nenhuma_leitura_de_texto_confia_na_codificacao_do_sistema():
+    """`open()` sem `encoding` usa a do sistema — cp1252 no Windows.
+
+    Todo texto deste projeto é em português. Ler um arquivo UTF-8 como cp1252
+    não levanta erro: troca os acentos por lixo, em silêncio, e o estudante
+    vê "InstalaÃ§Ã£o" no lugar de "Instalação". É a pior classe de bug de
+    portabilidade justamente por não fazer barulho.
+    """
+    problemas: dict[str, list[int]] = {}
+    for arquivo in sorted(RAIZ.glob("app/**/*.py")) + sorted(RAIZ.glob("tests/**/*.py")):
+        linhas = _chamadas_sem_encoding(arquivo)
+        if linhas:
+            problemas[str(arquivo.relative_to(RAIZ))] = linhas
+    assert not problemas, f"declare encoding='utf-8' em: {problemas}"
+
+
+def test_nenhum_caminho_absoluto_de_linux_no_codigo():
+    """`/tmp`, `/home` e `/usr` não existem no Windows."""
+    padrao = re.compile(r'["\'](?:/tmp|/home/|/usr/|/etc/|/var/)')
+    problemas = []
+    for arquivo in sorted(RAIZ.glob("app/**/*.py")):
+        for numero, linha in enumerate(
+            arquivo.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if padrao.search(linha) and "#" not in linha.split('"')[0]:
+                problemas.append(f"{arquivo.relative_to(RAIZ)}:{numero}")
+    assert not problemas, f"caminho absoluto de Linux em: {problemas}"
+
+
+def test_nenhuma_chamada_exclusiva_de_posix():
+    """Módulos e funções que simplesmente não existem no Windows."""
+    proibidos = re.compile(
+        r"\b(?:os\.fork|os\.setsid|os\.getuid|os\.geteuid|os\.chown|"
+        r"import\s+fcntl|import\s+pwd|import\s+grp|import\s+termios|"
+        r"signal\.SIGKILL)\b"
+    )
+    problemas = []
+    for arquivo in sorted(RAIZ.glob("app/**/*.py")):
+        for numero, linha in enumerate(
+            arquivo.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            if proibidos.search(linha):
+                problemas.append(f"{arquivo.relative_to(RAIZ)}:{numero} — {linha.strip()}")
+    assert not problemas, f"chamada exclusiva de POSIX em: {problemas}"
