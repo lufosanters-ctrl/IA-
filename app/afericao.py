@@ -21,6 +21,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .console import cores_disponiveis, escrever, preparar_saida
+
 # --------------------------------------------------------------------------
 # Casos de referência
 # --------------------------------------------------------------------------
@@ -536,8 +538,10 @@ def aferir(area: str = "") -> Relatorio:
 # Linha de comando
 # --------------------------------------------------------------------------
 
+_COR = cores_disponiveis()
 VERDE, AMARELO, VERMELHO, CINZA, FIM = (
-    "\033[32m", "\033[33m", "\033[31m", "\033[90m", "\033[0m"
+    ("\033[32m", "\033[33m", "\033[31m", "\033[90m", "\033[0m")
+    if _COR else ("", "", "", "", "")
 )
 
 
@@ -546,6 +550,9 @@ def _cor_da_taxa(taxa: float) -> str:
 
 
 def main(argumentos: list[str] | None = None) -> int:
+    # Sobe o console para UTF-8 antes de imprimir qualquer acento. No Windows
+    # ele costuma vir em cp850, onde "ç" existe mas "—" e "✓" não.
+    preparar_saida()
     analisador = argparse.ArgumentParser(
         prog="python -m app.afericao",
         description="Mede se os motores estão respondendo certo.",
@@ -558,28 +565,28 @@ def main(argumentos: list[str] | None = None) -> int:
     opcoes = analisador.parse_args(argumentos)
 
     relatorio = aferir(opcoes.area)
-    print(f"\n  Aferição do Núcleo — {relatorio.total} casos de referência\n")
+    escrever(f"\n  Aferição do Núcleo — {relatorio.total} casos de referência\n")
 
     for area, dados in sorted(relatorio.por_area().items()):
         cor = _cor_da_taxa(dados["taxa"])
         barra = "█" * round(dados["taxa"] / 5) + "·" * (20 - round(dados["taxa"] / 5))
-        print(f"  {area:14} {cor}{barra}{FIM} "
+        escrever(f"  {area:14} {cor}{barra}{FIM} "
               f"{dados['acertos']:>3}/{dados['total']:<3} {cor}{dados['taxa']:>5.1f}%{FIM}")
 
     if relatorio.falhas:
-        print(f"\n  {VERMELHO}{len(relatorio.falhas)} caso(s) errado(s):{FIM}\n")
+        escrever(f"\n  {VERMELHO}{len(relatorio.falhas)} caso(s) errado(s):{FIM}\n")
         for falha in relatorio.falhas:
-            print(f"  {VERMELHO}✗{FIM} {falha.caso.entrada}")
-            print(f"    esperado: {_texto(falha.caso.esperado)}")
-            print(f"    obtido:   {_texto(falha.obtido)}")
+            escrever(f"  {VERMELHO}✗{FIM} {falha.caso.entrada}")
+            escrever(f"    esperado: {_texto(falha.caso.esperado)}")
+            escrever(f"    obtido:   {_texto(falha.obtido)}")
             if falha.caso.porque:
-                print(f"    {CINZA}regra: {falha.caso.porque}{FIM}")
-            print()
+                escrever(f"    {CINZA}regra: {falha.caso.porque}{FIM}")
+            escrever()
     elif not opcoes.falhas:
-        print(f"\n  {VERDE}Todos os casos de referência passaram.{FIM}")
+        escrever(f"\n  {VERDE}Todos os casos de referência passaram.{FIM}")
 
     cor = _cor_da_taxa(relatorio.taxa)
-    print(f"\n  Total: {cor}{relatorio.acertos}/{relatorio.total} "
+    escrever(f"\n  Total: {cor}{relatorio.acertos}/{relatorio.total} "
           f"({relatorio.taxa:.1f}%){FIM}\n")
     return 0 if not relatorio.falhas else 1
 

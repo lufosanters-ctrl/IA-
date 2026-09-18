@@ -31,7 +31,7 @@ from .catalogo import baixar_catalogo, listar_catalogo
 from .matematica.classificacao import NIVEIS, TOPICOS, classificar
 from .matematica.criacao import GERADORES, criar as criar_questao
 from .matematica.resolucao import Problema, dar_pista, resolver as resolver_problema
-from .livros import FORMATOS
+from .livros import FORMATOS, nome_de_arquivo_seguro
 from .cache import CacheTTL
 from .config import obter_config
 from .schemas import (
@@ -398,7 +398,10 @@ async def biblioteca_enviar(
     resultados: list[dict[str, Any]] = []
 
     for enviado in arquivos:
-        nome = Path(enviado.filename or "livro").name
+        # Nome enviado pelo navegador: precisa passar pelas regras do sistema
+        # de arquivos antes de virar caminho. "CON.pdf" e "prova:2024.pdf" são
+        # aceitos no Linux e recusados no Windows.
+        nome = nome_de_arquivo_seguro(enviado.filename or "livro")
         if Path(nome).suffix.lower() not in FORMATOS:
             resultados.append({
                 "arquivo": nome, "estado": "erro",

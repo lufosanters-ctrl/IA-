@@ -1,0 +1,21 @@
+# Normaliza as quebras de linha por tipo de arquivo.
+#
+# O Git converte LF para CRLF na cópia de trabalho do Windows quando
+# `core.autocrlf` está ligado, e isso quebra duas coisas em silêncio: um
+# script .sh com CRLF não roda no Linux, e um .bat com LF falha nos blocos de
+# várias linhas no Windows. Marcar cada tipo resolve dos dois lados.
+
+* text=auto eol=lf
+
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+*.sh   text eol=lf
+
+*.png  binary
+*.jpg  binary
+*.webp binary
+*.pdf  binary
+*.epub binary
+*.db   binary

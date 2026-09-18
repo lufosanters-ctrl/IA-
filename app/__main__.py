@@ -5,11 +5,13 @@ from __future__ import annotations
 import uvicorn
 
 from .config import obter_config
+from .console import escrever, preparar_saida
 
 
 def main() -> None:
+    preparar_saida()
     cfg = obter_config()
-    print(f"\n  {cfg.nome_app} — http://{cfg.host}:{cfg.porta}\n")
+    escrever(f"\n  {cfg.nome_app} — http://{cfg.host}:{cfg.porta}\n")
     uvicorn.run(
         "app.main:app",
         host=cfg.host,

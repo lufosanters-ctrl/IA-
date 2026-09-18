@@ -25,6 +25,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from .biblioteca import ResultadoIngestao, diretorio_livros, indexar
+from .livros import nome_de_arquivo_seguro
 from .texto import limpar_html
 
 log = logging.getLogger("nucleo.catalogo")
@@ -108,9 +109,15 @@ class ErroDownload(RuntimeError):
 
 
 def _nome_seguro(titulo: str, extensao: str) -> str:
+    """Nome de arquivo a partir do título do livro do catálogo.
+
+    O título vem de um catálogo público, então pode trazer qualquer coisa.
+    Além da limpeza para leitura, passa pelas regras do sistema de arquivos:
+    um livro chamado "Aux" viraria "aux.txt", que o Windows recusa.
+    """
     base = re.sub(r"[^\w\s-]", "", titulo, flags=re.UNICODE).strip()
     base = re.sub(r"[\s_]+", "-", base).lower()[:80] or "livro"
-    return f"{base}{extensao}"
+    return nome_de_arquivo_seguro(f"{base}{extensao}")
 
 
 # --------------------------------------------------------------------------

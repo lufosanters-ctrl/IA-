@@ -26,21 +26,60 @@ Feito em **Python** (FastAPI, `asyncio`) com interface web sem etapa de build.
 
 ## Como rodar
 
+Funciona igual em Windows, Linux e macOS. Precisa de Python 3.11 ou mais novo.
+
+### Windows
+
+Baixe o projeto, abra a pasta e dê um duplo clique em **`iniciar.bat`**.
+
+Quem prefere o PowerShell:
+
+```powershell
+git clone https://github.com/lufosanters-ctrl/IA-.git
+cd IA-
+.\iniciar.ps1
+```
+
+Se o PowerShell recusar o script, a política de execução está bloqueando
+arquivos `.ps1`. Libere só para aquela janela, sem mexer na configuração da
+máquina:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+Se o Windows abrir a Loja quando você digita `python`, o que está no PATH é o
+atalho da Microsoft Store, não o Python. Instale pelo
+[site oficial](https://www.python.org/downloads/windows/) e marque
+**"Add python.exe to PATH"** na primeira tela do instalador.
+
+### Linux e macOS
+
 ```bash
 git clone https://github.com/lufosanters-ctrl/IA-.git
 cd IA-
 ./iniciar.sh
 ```
 
-Abra <http://127.0.0.1:8000>. O script cria o ambiente virtual, instala as
-dependências e sobe o servidor na primeira execução.
+Em qualquer sistema, abra <http://127.0.0.1:8000> depois que o servidor subir.
+O script cria o ambiente virtual, instala as dependências e sobe o servidor na
+primeira execução; nas seguintes ele só sobe.
 
 Passo a passo manual, se preferir:
 
 ```bash
+# Linux e macOS
 python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && cp .env.example .env
+python -m app
+```
+
+```powershell
+# Windows
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-cp .env.example .env
+Copy-Item .env.example .env
 python -m app
 ```
 

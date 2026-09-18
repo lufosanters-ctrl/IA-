@@ -232,21 +232,28 @@ def _extrair_pdf(caminho: Path) -> LivroExtraido:
             "leitura de PDF exige o pacote 'pypdf' (pip install pypdf)"
         ) from exc
 
+    # Abrir pelo caminho deixa o `pypdf` segurando o arquivo até a coleta de
+    # lixo. No Linux isso é inofensivo; no Windows, um arquivo aberto não pode
+    # ser apagado nem renomeado, e o caminho de erro do upload — que remove o
+    # arquivo quando a indexação falha — quebrava com PermissionError. Abrindo
+    # nós mesmos, o `with` garante o fechamento.
     try:
-        leitor = PdfReader(str(caminho))
-        if leitor.is_encrypted:
-            try:
-                leitor.decrypt("")
-            except Exception as exc:
-                raise ErroExtracao("PDF protegido por senha") from exc
-        brutas = []
-        total = 0
-        for pagina in leitor.pages[:MAX_PAGINAS]:
-            texto_pagina = pagina.extract_text() or ""
-            total += len(texto_pagina)
-            if total > MAX_BYTES_POR_LIVRO:
-                break
-            brutas.append(texto_pagina)
+        with open(caminho, "rb") as fluxo:
+            leitor = PdfReader(fluxo)
+            if leitor.is_encrypted:
+                try:
+                    leitor.decrypt("")
+                except Exception as exc:
+                    raise ErroExtracao("PDF protegido por senha") from exc
+            brutas = []
+            total = 0
+            for pagina in leitor.pages[:MAX_PAGINAS]:
+                texto_pagina = pagina.extract_text() or ""
+                total += len(texto_pagina)
+                if total > MAX_BYTES_POR_LIVRO:
+                    break
+                brutas.append(texto_pagina)
+            metadados = leitor.metadata or {}
     except ErroExtracao:
         raise
     except Exception as exc:
@@ -258,7 +265,6 @@ def _extrair_pdf(caminho: Path) -> LivroExtraido:
             "Passe por um OCR antes de adicionar."
         )
 
-    metadados = leitor.metadata or {}
     titulo = (metadados.get("/Title") or "").strip() or caminho.stem
     autor = (metadados.get("/Author") or "").strip()
 
@@ -439,3 +445,57 @@ def impressao_digital(caminho: Path) -> str:
         for bloco in iter(lambda: arquivo.read(1 << 20), b""):
             resumo.update(bloco)
     return resumo.hexdigest()
+
+
+# --------------------------------------------------------------------------
+# Nomes de arquivo aceitos pelo sistema operacional
+# --------------------------------------------------------------------------
+
+# O Windows recusa nove caracteres em nome de arquivo. No Linux e no macOS
+# todos eles passam, então um arquivo enviado de um lado quebra do outro.
+_PROIBIDOS_NO_NOME = '<>:"/\\|?*'
+
+# Nomes reservados para dispositivos, herdados do MS-DOS. Valem com qualquer
+# extensão: "CON.pdf" e "com1.txt" falham do mesmo jeito que "CON".
+_NOMES_RESERVADOS = {
+    "con", "prn", "aux", "nul",
+    *(f"com{n}" for n in range(1, 10)),
+    *(f"lpt{n}" for n in range(1, 10)),
+}
+
+_MAX_NOME = 120
+
+
+def nome_de_arquivo_seguro(bruto: str, padrao: str = "livro") -> str:
+    """Nome utilizável em Windows, Linux e macOS, preservando o que der.
+
+    Acentos ficam: o Windows aceita Unicode em nome de arquivo desde sempre, e
+    trocar "Álgebra" por "Algebra" piora a lista de livros do estudante sem
+    necessidade. O que sai é só o que o sistema realmente recusa.
+    """
+    # Separador de caminho dos DOIS sistemas: `Path(...).name` só reconhece o
+    # do sistema em que roda, então uma barra invertida vinda do Windows
+    # passaria inteira por um servidor Linux, e vice-versa.
+    nome = str(bruto or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+    if not nome:
+        return padrao
+
+    # Caracteres de controle e os nove proibidos.
+    limpo = "".join(
+        "-" if (c in _PROIBIDOS_NO_NOME or ord(c) < 32) else c for c in nome
+    )
+
+    base, ponto, extensao = limpo.rpartition(".")
+    if not ponto:
+        base, extensao = limpo, ""
+
+    # O Windows corta ponto e espaço do fim do nome em silêncio. Um arquivo
+    # gravado como "capitulo ." vira "capitulo", e o caminho guardado no banco
+    # deixa de existir.
+    base = base.rstrip(" .") or padrao
+    if base.lower() in _NOMES_RESERVADOS:
+        base = f"{base}-livro"
+
+    base = base[:_MAX_NOME]
+    extensao = extensao.strip(" .")[:16]
+    return f"{base}.{extensao}" if extensao else base
