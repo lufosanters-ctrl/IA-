@@ -41,19 +41,30 @@ EQUIVALENTES: dict[str, str] = {
 
 
 def _tentar_utf8(fluxo: TextIO) -> None:
-    """Sobe o fluxo para UTF-8 quando o Python permite.
+    """Sobe o fluxo para UTF-8; nao dando, ao menos impede que ele estoure.
 
     `reconfigure` existe a partir do 3.7 e resolve o caso comum: o console do
     Windows ate aceita UTF-8, mas o Python so descobre isso se mandarmos.
+
+    Quando nem isso da certo, o segundo passo importa tanto quanto: trocar o
+    tratamento de erro para `replace` na propria codificacao do console. Sem
+    isso, qualquer texto que NAO passe por `escrever` — a ajuda do argparse,
+    um traceback, uma mensagem de biblioteca — ainda derrubaria o programa.
+    Um acento perdido e melhor que um programa que nao abre.
     """
     reconfigurar = getattr(fluxo, "reconfigure", None)
     if reconfigurar is None:
         return
     try:
         reconfigurar(encoding="utf-8", errors="replace")
+        return
     except (ValueError, OSError):
-        # Fluxo redirecionado para algo que nao aceita troca. Sem drama: o
-        # `suportado` abaixo detecta e a troca por equivalentes cobre.
+        pass
+    try:
+        reconfigurar(errors="replace")
+    except (ValueError, OSError):
+        # Fluxo que nao aceita troca nenhuma. O `suportado` detecta e a troca
+        # por equivalentes cobre o que passa por `escrever`.
         pass
 
 

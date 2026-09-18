@@ -171,3 +171,36 @@ def test_gitattributes_fixa_as_quebras_de_linha():
     texto = (RAIZ / ".gitattributes").read_text()
     assert "*.bat" in texto and "eol=crlf" in texto
     assert "*.sh" in texto and "eol=lf" in texto
+
+
+def test_saida_sobrevive_a_console_que_recusa_utf8():
+    """Nem todo console aceita a troca para UTF-8.
+
+    Aí o que salva é o segundo passo: trocar o tratamento de erro para
+    `replace` na codificação que o console já usa. Sem isso, todo texto que
+    NÃO passa por `escrever` — a ajuda do argparse, um traceback, uma
+    mensagem de biblioteca — ainda derrubaria o programa.
+    """
+    class ConsoleTeimoso(io.TextIOWrapper):
+        def reconfigure(self, **kwargs):            # type: ignore[override]
+            if "encoding" in kwargs:
+                raise OSError("este console não aceita UTF-8")
+            return super().reconfigure(**kwargs)
+
+    fluxo = ConsoleTeimoso(io.BytesIO(), encoding="cp850", errors="strict")
+    console._tentar_utf8(fluxo)
+    assert fluxo.errors == "replace"
+    fluxo.write("travessão — visto ✓\n")            # não pode levantar
+
+
+def test_ajuda_da_cli_nao_estoura_em_console_antigo():
+    """O argparse imprime direto, sem passar pelo nosso escritor."""
+    import subprocess
+
+    for modulo in ("app.afericao", "app.ingerir"):
+        resultado = subprocess.run(
+            [sys.executable, "-m", modulo, "--help"],
+            capture_output=True, text=True, cwd=str(RAIZ),
+            env={**__import__("os").environ, "PYTHONIOENCODING": "cp850"},
+        )
+        assert resultado.returncode == 0, f"{modulo}: {resultado.stderr[-300:]}"
