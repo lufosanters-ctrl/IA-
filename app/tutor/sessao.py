@@ -264,20 +264,26 @@ def registrar_tentativa(
         )
 
         topico = sessao["topico"] or "geral"
+        # "indeterminado" quer dizer que o sistema NÃO conseguiu julgar a
+        # tentativa. Contar isso como erro do estudante fabricava um domínio
+        # de 0% a partir de vereditos que ninguém deu — inclusive quando a
+        # tentativa estava certa.
         acerto = 1 if veredito == "correto" else 0
+        erro = 1 if veredito == "incorreto" else 0
+        julgada = 1 if veredito in {"correto", "incorreto"} else 0
         conexao.execute(
             """
             INSERT INTO dominio_tutor (topico, acertos, erros, soma_ajuda,
                                        sessoes, atualizado_em)
-            VALUES (?, ?, ?, ?, 1, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(topico) DO UPDATE SET
                 acertos = acertos + excluded.acertos,
                 erros = erros + excluded.erros,
                 soma_ajuda = soma_ajuda + excluded.soma_ajuda,
-                sessoes = sessoes + 1,
+                sessoes = sessoes + excluded.sessoes,
                 atualizado_em = excluded.atualizado_em
             """,
-            (topico, acerto, 1 - acerto, nivel_ajuda, agora),
+            (topico, acerto, erro, nivel_ajuda, julgada, agora),
         )
 
     return Tentativa(
@@ -354,7 +360,10 @@ def padroes_de_erro(minimo: int = 2) -> dict[str, Any]:
             "topico": linha["topico"],
             "acertos": linha["acertos"],
             "erros": linha["erros"],
-            "taxa": round(linha["acertos"] / total * 100, 1) if total else 0.0,
+            # `None`, não `0.0`: sem tentativa julgada não há taxa nenhuma, e
+            # exibir "0% de acerto" afirma um fracasso que ninguém mediu.
+            "taxa": round(linha["acertos"] / total * 100, 1) if total else None,
+            "julgadas": total,
             "ajuda_media": round(linha["soma_ajuda"] / linha["sessoes"], 2)
             if linha["sessoes"] else 0.0,
         })

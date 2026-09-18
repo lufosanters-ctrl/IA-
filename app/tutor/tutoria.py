@@ -173,6 +173,9 @@ async def apurar(enunciado: str, materia: str = "") -> ContextoVerificado:
     """Roda o verificador da matéria e devolve o que ficou estabelecido."""
     materia = materia or detectar_materia(enunciado)
     contexto = ContextoVerificado(materia=materia)
+    # O enunciado fica guardado: o diagnóstico da tentativa precisa dele para
+    # confrontar a resposta do estudante com a álgebra.
+    contexto.dados["enunciado"] = enunciado
 
     # O acervo do estudante entra em qualquer matéria.
     livros = _trechos_da_biblioteca(enunciado)
@@ -287,8 +290,47 @@ class RespostaTutor:
             "texto": self.texto, "nivel": self.nivel,
             "nome_do_degrau": self.nome_do_degrau, "materia": self.materia,
             "modo": self.modo, "revela_resposta": self.revela_resposta,
-            "contexto": self.contexto, "pode_subir": self.pode_subir,
+            "contexto": _contexto_podado(self.contexto, self.revela_resposta),
+            "pode_subir": self.pode_subir,
         }
+
+
+# Chaves do contexto que carregam a resposta. Enquanto o degrau não revela,
+# elas não podem sair daqui: o texto do degrau 0 pode estar impecável e o JSON
+# ao lado trazer `solucoes: {"x": ["2","3"]}` para quem abrir o inspetor.
+_CHAVES_QUE_ENTREGAM = ("solucoes", "solucoes_latex", "resposta", "gabarito")
+
+
+def _contexto_podado(contexto: dict[str, Any], revela: bool) -> dict[str, Any]:
+    """Remove do payload tudo que entrega a resposta antes da hora.
+
+    A instrução “NÃO revele estes valores” serve para o modelo de linguagem,
+    não para o navegador: ela viaja na mesma string que contém os valores.
+    Enquanto o degrau não revela, os valores simplesmente não são enviados.
+    """
+    if revela or not contexto:
+        return contexto
+
+    podado = {
+        chave: valor for chave, valor in contexto.items()
+        if chave not in {"resumo", "dados"}
+    }
+    # O resumo é escrito para o modelo e cita a solução em português legível.
+    podado["resumo"] = ""
+    dados = contexto.get("dados")
+    if not isinstance(dados, dict):
+        return podado
+
+    limpos: dict[str, Any] = {}
+    for chave, valor in dados.items():
+        if isinstance(valor, dict):
+            limpos[chave] = {
+                k: v for k, v in valor.items() if k not in _CHAVES_QUE_ENTREGAM
+            }
+        else:
+            limpos[chave] = valor
+    podado["dados"] = limpos
+    return podado
 
 
 # Mecanismo de cada tópico, enunciado SEM veredito. É o que pode aparecer nos
@@ -813,7 +855,96 @@ def _diagnostico_deterministico(
                     f"{primeira.observacao}"
                 ),
             )
+
+    if contexto.materia == "matematica":
+        return _diagnostico_matematico(tentativa, contexto)
     return None
+
+
+# Sinais de erro de conta que a álgebra sozinha não nomeia, mas que aparecem
+# escritos na tentativa. Servem para dizer QUE TIPO de erro foi, não SE houve.
+_MARCAS_DE_ERRO = (
+    (re.compile(r"\bdelta\b|\bΔ\b|\bdiscriminante\b", re.IGNORECASE), "sinal"),
+    (re.compile(r"\bsoma\b.*\bproduto\b|\bgirard\b", re.IGNORECASE),
+     "confusao_entre_regras"),
+    (re.compile(r"\bchutei\b|\bchute\b|\bpor tentativa\b|\badivinhei\b",
+                re.IGNORECASE), "conceitual"),
+)
+
+
+def _diagnostico_matematico(
+    tentativa: str, contexto: ContextoVerificado
+) -> Diagnostico | None:
+    """Confronta a tentativa com a álgebra — o que já existia e não era usado.
+
+    Sem este ramo, TODA tentativa de matemática voltava "indeterminado": o
+    acerto não era reconhecido, o erro não era apontado, e a escada subia um
+    degrau a cada envio, de modo que seis respostas certas entregavam a
+    resolução completa.
+    """
+    from ..matematica.simbolico import (
+        conferir_resposta,
+        condicoes_nao_aplicadas,
+        pede_resolver_equacao,
+    )
+
+    enunciado = contexto.dados.get("enunciado", "")
+    if not enunciado or not tentativa.strip():
+        return None
+    # Leitura incompleta do enunciado: melhor calar do que acusar errado.
+    if condicoes_nao_aplicadas(enunciado) or not pede_resolver_equacao(enunciado):
+        return None
+
+    try:
+        confronto = conferir_resposta(enunciado, tentativa)
+    except Exception:  # noqa: BLE001 - diagnóstico nunca derruba a sessão
+        return None
+    if not confronto:
+        return None
+
+    if all(c.passou for c in confronto):
+        return Diagnostico(
+            veredito="correto",
+            ate_onde_correto="o caminho inteiro",
+            primeiro_erro="",
+            por_que="",
+            tipo_erro="",
+            pergunta_que_faltou="",
+            resposta=(
+                "**Confere.** Substituí os valores da sua resposta na equação "
+                "do enunciado e o resíduo é nulo.\n\n"
+                "Antes de fechar: você consegue dizer por que esse método "
+                "funciona, e não só que funcionou? Essa é a diferença entre "
+                "acertar esta questão e acertar a próxima."
+            ),
+        )
+
+    falha = next(c for c in confronto if not c.passou)
+    tipo = next(
+        (rotulo for padrao, rotulo in _MARCAS_DE_ERRO if padrao.search(tentativa)),
+        "algebrico",
+    )
+    return Diagnostico(
+        veredito="incorreto",
+        ate_onde_correto="a montagem da equação está correta",
+        primeiro_erro=falha.detalhe,
+        por_que=(
+            "Substituindo o valor que você obteve na equação do enunciado, o "
+            "resíduo não é nulo — então esse valor não é raiz."
+        ),
+        tipo_erro=tipo,
+        pergunta_que_faltou=(
+            "Refaça a conta substituindo o seu resultado na equação original. "
+            "Em que linha o valor deixa de fechar?"
+        ),
+        resposta=(
+            "A montagem está certa; o problema é da conta para a frente.\n\n"
+            f"{falha.detalhe}\n\n"
+            "Não vou dizer qual é o valor certo. Substitua o seu resultado na "
+            "equação do enunciado e veja onde os dois lados deixam de bater — "
+            "é exatamente nessa linha que está o erro."
+        ),
+    )
 
 
 async def avaliar_tentativa(

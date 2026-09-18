@@ -335,7 +335,7 @@
 
           case "fontes":
             registrarEtapa(`${evento.documentos} documentos recuperados`);
-            desenharDiagnostico(evento.itens);
+            desenharBasesConsultadas(evento.itens);
             break;
 
           case "citacoes":
@@ -434,23 +434,23 @@
       const meta = [
         `<span class="etiqueta-fonte">${escapar(NOMES_FONTE[c.fonte] || c.fonte)}</span>`,
         autores ? `<span>${escapar(autores)}${(c.autores || []).length > 2 ? " et al." : ""}</span>` : "",
-        c.ano ? `<span>${c.ano}</span>` : "",
-        extra.citacoes ? `<span>${extra.citacoes} citações</span>` : "",
+        c.ano ? `<span>${escapar(c.ano)}</span>` : "",
+        extra.citacoes ? `<span>${numero(extra.citacoes)} citações</span>` : "",
         deLivro && extra.paginado && extra.pagina
-          ? `<span>página ${extra.pagina}</span>` : "",
+          ? `<span>página ${numero(extra.pagina)}</span>` : "",
         deLivro && extra.capitulo ? `<span>${escapar(extra.capitulo)}</span>` : "",
       ].filter(Boolean).join("");
 
       /* Livro local não tem link externo: abre o trecho em contexto. */
       const titulo = deLivro && !c.url
-        ? `<span class="citacao-titulo sem-link" data-trecho="${extra.trecho_id || ""}"
+        ? `<span class="citacao-titulo sem-link" data-trecho="${identificador(extra.trecho_id)}"
              title="Ver o trecho no livro">${escapar(c.titulo)}</span>`
-        : `<a class="citacao-titulo" href="${escapar(c.url)}" target="_blank"
+        : `<a class="citacao-titulo" href="${endereco(c.url)}" target="_blank"
              rel="noopener noreferrer">${escapar(c.titulo)}</a>`;
 
       return `
-        <li class="citacao${deLivro ? " de-livro" : ""}" id="citacao-${c.numero}">
-          <span class="citacao-numero">${c.numero}</span>
+        <li class="citacao${deLivro ? " de-livro" : ""}" id="citacao-${identificador(c.numero)}">
+          <span class="citacao-numero">${escapar(c.numero)}</span>
           <div>
             ${titulo}
             <div class="citacao-meta">${meta}</div>
@@ -545,17 +545,17 @@
     setTimeout(() => alvo.classList.remove("destacada"), 2400);
   }
 
-  function desenharDiagnostico(itens) {
+  function desenharBasesConsultadas(itens) {
     $("#lista-diagnostico").innerHTML = (itens || []).map((item) => {
       const classe = item.erro ? "falha" : (item.itens ? "ok" : "vazio");
       const detalhe = item.erro
         ? escapar(item.erro)
-        : (item.cache ? "em cache" : `${item.duracao_ms} ms`);
+        : (item.cache ? "em cache" : `${numero(item.duracao_ms, "?")} ms`);
       return `
         <li class="diag" title="${escapar(item.erro || "")}">
           <span class="status ${classe}"></span>
           <span>${escapar(item.nome)}</span>
-          <span class="quanto">${item.itens} · ${detalhe}</span>
+          <span class="quanto">${numero(item.itens, "0")} · ${detalhe}</span>
         </li>`;
     }).join("");
   }
@@ -568,6 +568,8 @@
     if (!estado.pesquisaAtual) { avisar("Faça uma pesquisa primeiro.", "erro"); return; }
     const pergunta = estado.pesquisaAtual.pergunta;
     const fontes = Array.from(estado.fontesSelecionadas);
+    if (botao.disabled) return;   // clique duplo disparava duas requisições
+    botao.disabled = true;
     botao.classList.add("carregando");
     const area = $("#area-ferramenta");
     area.innerHTML = '<div class="cartao"><div class="esqueleto" style="height:16px;width:40%"></div>'
@@ -589,10 +591,13 @@
         desenharExplicacao(dados, pergunta, fontes);
       }
     } catch (erro) {
-      area.innerHTML = "";
+      mostrarErro(area, erro.message,
+        "Faça uma pesquisa que traga fontes e tente de novo — estas "
+        + "ferramentas trabalham em cima do material recuperado.");
       avisar(erro.message, "erro");
     } finally {
       botao.classList.remove("carregando");
+      botao.disabled = false;
     }
   }
 
@@ -616,7 +621,7 @@
             <div class="flashcard" data-indice="${i}">
               <div class="flashcard-interno">
                 <div class="flashcard-face">
-                  ${c.citacao ? `<span class="origem">[${c.citacao}]</span>` : ""}
+                  ${c.citacao ? `<span class="origem">[${escapar(c.citacao)}]</span>` : ""}
                   <b>${escapar(c.frente)}</b>
                   <span class="dica">virar ↻</span>
                 </div>
@@ -693,7 +698,7 @@
                 </button>`).join("")}
             </div>
             <div class="explicacao" hidden>${escapar(q.explicacao || "")}
-              ${q.citacao ? ` <a class="citacao-marca" href="#citacao-${q.citacao}">${q.citacao}</a>` : ""}
+              ${q.citacao ? ` <a class="citacao-marca" href="#citacao-${identificador(q.citacao)}">${escapar(q.citacao)}</a>` : ""}
             </div>
           </div>`).join("")}
         <div class="placar" id="placar" hidden><b>0</b><span></span></div>
@@ -785,7 +790,7 @@
       });
       desenharPlano(plano);
     } catch (erro) {
-      area.innerHTML = "";
+      mostrarErro(area, erro.message);
       avisar(erro.message, "erro");
     }
   }
@@ -817,7 +822,7 @@
               ${s.atividade ? `<div class="atividade">${escapar(s.atividade)}</div>` : ""}
               <div class="rodape">
                 ${(s.topicos || []).map((t) => `<span class="area-tag">${escapar(t)}</span>`).join("")}
-                ${s.duracao_min ? `<span class="area-tag">${s.duracao_min} min</span>` : ""}
+                ${s.duracao_min ? `<span class="area-tag">${numero(s.duracao_min)} min</span>` : ""}
               </div>
             </div>`).join("")}
         </div>
@@ -829,7 +834,7 @@
         ${(plano.recursos || []).length ? `
           <h3 style="font-size:14px;margin:18px 0 8px">Recursos</h3>
           <ul style="margin:0;padding-left:18px;font-size:13.4px">
-            ${plano.recursos.map((r) => `<li><a href="${escapar(r)}" target="_blank"
+            ${plano.recursos.map((r) => `<li><a href="${endereco(r)}" target="_blank"
               rel="noopener noreferrer" style="color:var(--azul)">${escapar(r)}</a></li>`).join("")}
           </ul>` : ""}
       </div>`;
@@ -915,7 +920,7 @@
             <h4>${escapar(b.nome)}</h4>
             <p>${escapar(b.descricao || "sem descrição")}</p>
             <div class="numeros">
-              <span><b>${b.total}</b> cartões</span>
+              <span><b>${numero(b.total, "0")}</b> cartões</span>
               <span><b>${b.devidos}</b> para hoje</span>
             </div>
           </div>`).join("")
@@ -980,14 +985,14 @@
       <div class="revisor">
         <div class="revisor-progresso">
           <span>Cartão ${indice + 1} de ${total}</span>
-          <span>intervalo atual: ${cartao.intervalo} dia(s)</span>
+          <span>intervalo atual: ${numero(cartao.intervalo, "?")} dia(s)</span>
         </div>
         <div class="revisor-barra"><i style="width:${(indice / total) * 100}%"></i></div>
         <div class="cartao-revisao">
           <div class="frente">${escapar(cartao.frente)}</div>
           <div class="verso" id="verso-revisao" hidden>
             ${escapar(cartao.verso)}
-            ${cartao.fonte_url ? `<br><a href="${escapar(cartao.fonte_url)}" target="_blank"
+            ${cartao.fonte_url ? `<br><a href="${endereco(cartao.fonte_url)}" target="_blank"
               rel="noopener noreferrer">${escapar(cartao.fonte_titulo || "fonte")}</a>` : ""}
           </div>
         </div>
@@ -1057,6 +1062,13 @@
     const entrada = $("#entrada-arquivos");
 
     area.addEventListener("click", () => entrada.click());
+    // `role="button"` promete teclado: Enter e Espaço abrem o seletor.
+    area.addEventListener("keydown", (evento) => {
+      if (evento.key === "Enter" || evento.key === " ") {
+        evento.preventDefault();
+        entrada.click();
+      }
+    });
     entrada.addEventListener("change", () => {
       if (entrada.files.length) enviarLivros(entrada.files);
       entrada.value = "";
@@ -1257,18 +1269,18 @@
   // circunflexo cru no meio da conta.
   const SOBRESCRITOS = {
     0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷",
-    8: "⁸", 9: "⁹", "+": "⁺", "-": "⁻", "(": "⁽", ")": "⁾", n: "ⁿ", i: "ⁱ",
+    8: "⁸", 9: "⁹", "+": "⁺", "-": "⁻", n: "ⁿ", i: "ⁱ",
   };
   const SUBSCRITOS = {
     0: "₀", 1: "₁", 2: "₂", 3: "₃", 4: "₄", 5: "₅", 6: "₆", 7: "₇",
-    8: "₈", 9: "₉", "+": "₊", "-": "₋", "(": "₍", ")": "₎",
+    8: "₈", 9: "₉", "+": "₊", "-": "₋",
     a: "ₐ", e: "ₑ", i: "ᵢ", j: "ⱼ", k: "ₖ", m: "ₘ", n: "ₙ", p: "ₚ",
     x: "ₓ", t: "ₜ",
   };
 
   /** Converte `x^2` e `r_1` em `x²` e `r₁`, quando todo caractere tem mapa. */
   function emUnicode(texto, mapa, marcador) {
-    const padrao = new RegExp(`\\${marcador}([A-Za-z0-9+\\-()]+)`, "g");
+    const padrao = new RegExp(`\\${marcador}([A-Za-z0-9+\\-]+)`, "g");
     return texto.replace(padrao, (inteiro, corpo) => {
       const convertido = [...corpo].map((c) => mapa[c]).join("");
       // Se algum caractere não tem equivalente, mantém a notação original:
@@ -1467,7 +1479,7 @@
       });
       desenharResolucao(r);
     } catch (erro) {
-      saida.innerHTML = "";
+      mostrarErro(saida, erro.message);
       avisar(erro.message, "erro");
     } finally {
       botao.disabled = false;
@@ -1699,6 +1711,13 @@
     const area = $("#tut-area-imagem");
     const entrada = $("#tut-imagem");
     area.addEventListener("click", () => entrada.click());
+    // `role="button"` promete teclado: Enter e Espaço abrem o seletor.
+    area.addEventListener("keydown", (evento) => {
+      if (evento.key === "Enter" || evento.key === " ") {
+        evento.preventDefault();
+        entrada.click();
+      }
+    });
     entrada.addEventListener("change", () => {
       if (entrada.files.length) enviarFoto(entrada.files[0]);
       entrada.value = "";
@@ -1757,7 +1776,7 @@
       desenharEscada(dados.ajuda.nivel);
       desenharAjuda(dados.ajuda);
     } catch (erro) {
-      $("#tut-saida").innerHTML = "";
+      mostrarErro($("#tut-saida"), erro.message);
       avisar(erro.message, "erro");
     } finally {
       botao.disabled = false;
@@ -1826,7 +1845,7 @@
     try {
       const dados = await window.API.tutTentativa(estado.sessaoTutor.id, texto);
       desenharEscada(dados.nivel);
-      desenharDiagnostico(dados, texto);
+      desenharDiagnosticoDaTentativa(dados, texto);
     } catch (erro) {
       avisar(erro.message, "erro");
     } finally {
@@ -1834,7 +1853,7 @@
     }
   }
 
-  function desenharDiagnostico(dados, tentativa) {
+  function desenharDiagnosticoDaTentativa(dados, tentativa) {
     const d = dados.diagnostico;
     const correto = d.veredito === "correto";
     const rotuloVeredito = {
@@ -1899,7 +1918,7 @@
         comecarTutoria();
       });
     } catch (erro) {
-      $("#tut-saida").innerHTML = "";
+      mostrarErro($("#tut-saida"), erro.message);
       avisar(erro.message, "erro");
     }
   }
@@ -1930,14 +1949,19 @@
 
           ${dominio.length ? `
             <h2 class="titulo-secao" style="margin-top:20px">Domínio por assunto</h2>
-            ${dominio.map((d) => `
+            ${dominio.map((d) => (d.taxa === null || d.taxa === undefined ? `
+              <div class="medidor-linha">
+                <span class="rotulo">${escapar(d.topico)}</span>
+                <span class="medidor-barra"><i style="width:0"></i></span>
+                <span class="valor sem-dado">sem tentativa julgada</span>
+              </div>` : `
               <div class="medidor-linha">
                 <span class="rotulo">${escapar(d.topico)}</span>
                 <span class="medidor-barra">
-                  <i class="${faixa(d.taxa / 100)}" style="width:${d.taxa}%"></i>
+                  <i class="${faixa(d.taxa / 100)}" style="width:${Number(d.taxa)}%"></i>
                 </span>
-                <span class="valor">${d.taxa}%</span>
-              </div>`).join("")}` : ""}
+                <span class="valor">${Number(d.taxa)}%</span>
+              </div>`)).join("")}` : ""}
         </div>`;
       $("#tut-saida").querySelectorAll(".treinar-padrao").forEach((botao) => {
         botao.addEventListener("click", () => montarTreino("", botao.dataset.erro));
@@ -1967,7 +1991,9 @@
       desenharTreino(dados);
     } catch (erro) {
       avisar(erro.message, "erro");
-      caixa.innerHTML = "";
+      mostrarErro(caixa, erro.message,
+        "Tente de novo em instantes. Se persistir, estude algumas questões "
+        + "no modo tutor para o treino ter material de onde partir.");
     }
   }
 
@@ -2086,6 +2112,60 @@
     $("#gram-verbo").addEventListener("keydown", (e) => {
       if (e.key === "Enter") consultarRegencia();
     });
+  }
+
+  /* ====================================================================
+     Saneamento de dados vindos da API
+
+     Tudo que chega do backend passou antes por bases externas (Wikipedia,
+     Crossref, Open Library, arXiv). Título, ano, URL e número de citações são
+     texto de terceiro, não constante nossa: interpolar isso direto no HTML é
+     execução de código na sessão de quem estuda.
+     ==================================================================== */
+
+  /** Número seguro para interpolar: devolve string vazia se não for número. */
+  function numero(valor, padrao = "") {
+    const n = Number(valor);
+    return Number.isFinite(n) ? String(n) : padrao;
+  }
+
+  /** Identificador seguro para `id=` e `href="#..."`: só dígitos e letras. */
+  function identificador(valor) {
+    return String(valor == null ? "" : valor).replace(/[^A-Za-z0-9_-]/g, "");
+  }
+
+  /* `escapar` protege o CONTEÚDO de um atributo, não o seu significado:
+     href="javascript:..." passa intacto pelo escape de &<>"'. Só http(s) e
+     mailto viram link; qualquer outro esquema vira link nenhum. */
+  const ESQUEMAS_PERMITIDOS = /^(?:https?:|mailto:)/i;
+
+  function endereco(valor) {
+    const bruto = String(valor == null ? "" : valor).trim();
+    if (!bruto) return "";
+    // Relativo ao próprio site é seguro; esquema estranho, não.
+    if (bruto.startsWith("/") || bruto.startsWith("#")) return escapar(bruto);
+    return ESQUEMAS_PERMITIDOS.test(bruto) ? escapar(bruto) : "";
+  }
+
+  /** Cartão de erro que permanece na tela.
+
+     Limpar o painel e mandar a mensagem para um aviso que some em seis
+     segundos deixava o botão parecendo quebrado: passados alguns segundos, a
+     tela voltava a ser idêntica à de antes do clique, e quem não estava
+     olhando o canto naquele instante nunca soube o que houve.
+   */
+  function mostrarErro(area, mensagem, sugestao) {
+    if (!area) return;
+    area.innerHTML = `
+      <div class="cartao cartao-erro" role="alert">
+        <div class="erro-topo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/>
+            <path d="M12 8v5M12 16.5v.01"/></svg>
+          <b>Não deu para concluir</b>
+        </div>
+        <p>${escapar(mensagem || "Erro desconhecido.")}</p>
+        ${sugestao ? `<p class="erro-sugestao">${escapar(sugestao)}</p>` : ""}
+      </div>`;
   }
 
   const ROTULO_VEREDITO = {
@@ -2221,7 +2301,7 @@
 
       saida.innerHTML = `
         <div class="resumo-afericao ${dados.taxa === 100 ? "pleno" : "parcial"}">
-          <b>${dados.acertos}/${dados.total}</b>
+          <b>${numero(dados.acertos, "0")}/${numero(dados.total, "0")}</b>
           <span>${dados.taxa}% dos casos de referência</span>
         </div>
         <div class="medidor" style="margin-top:14px">
@@ -2231,7 +2311,7 @@
               <span class="medidor-barra">
                 <i class="${faixa(d.taxa / 100)}" style="width:${d.taxa}%"></i>
               </span>
-              <span class="valor">${d.acertos}/${d.total}</span>
+              <span class="valor">${numero(d.acertos, "0")}/${numero(d.total, "0")}</span>
             </div>`).join("")}
         </div>
         ${(dados.falhas || []).length ? `
@@ -2249,7 +2329,7 @@
           : '<p style="margin-top:14px;font-size:13.4px;color:var(--jade-300)">'
             + "Todos os casos de referência passaram.</p>"}`;
     } catch (erro) {
-      saida.innerHTML = "";
+      mostrarErro(saida, erro.message);
       avisar(erro.message, "erro");
     } finally {
       botao.disabled = false;
@@ -2304,6 +2384,7 @@
     const entrada = $("#paleta-entrada");
 
     $(".paleta-fundo", paleta).addEventListener("click", fecharPaleta);
+    prenderFocoNaPaleta();
     entrada.addEventListener("input", () => filtrarPaleta(entrada.value));
     entrada.addEventListener("keydown", (evento) => {
       if (evento.key === "Escape") { fecharPaleta(); return; }
@@ -2320,8 +2401,13 @@
     });
   }
 
+  // Quem abriu a paleta. Ao fechar, o foco volta para lá — largar o foco no
+  // BODY deixa quem navega por teclado sem ponto de retorno.
+  let focoAntesDaPaleta = null;
+
   function abrirPaleta() {
     const paleta = $("#paleta");
+    focoAntesDaPaleta = document.activeElement;
     paleta.hidden = false;
     $("#paleta-entrada").value = "";
     filtrarPaleta("");
@@ -2330,6 +2416,39 @@
 
   function fecharPaleta() {
     $("#paleta").hidden = true;
+    if (focoAntesDaPaleta && focoAntesDaPaleta.focus) {
+      focoAntesDaPaleta.focus();
+    }
+    focoAntesDaPaleta = null;
+  }
+
+  /* `aria-modal="true"` promete que o resto da página está fora de alcance.
+     Sem prender o foco, dois Tabs levavam para o BODY atrás do diálogo, e lá
+     nem Esc funcionava — o listener está no campo. Aqui o foco circula dentro
+     da paleta e Esc vale em qualquer ponto dela. */
+  function prenderFocoNaPaleta() {
+    const paleta = $("#paleta");
+    paleta.addEventListener("keydown", (evento) => {
+      if (evento.key === "Escape") {
+        evento.preventDefault();
+        fecharPaleta();
+        return;
+      }
+      if (evento.key !== "Tab") return;
+      const focaveis = paleta.querySelectorAll(
+        'input, button, [href], [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focaveis.length) return;
+      const primeiro = focaveis[0];
+      const ultimo = focaveis[focaveis.length - 1];
+      if (evento.shiftKey && document.activeElement === primeiro) {
+        evento.preventDefault();
+        ultimo.focus();
+      } else if (!evento.shiftKey && document.activeElement === ultimo) {
+        evento.preventDefault();
+        primeiro.focus();
+      }
+    });
   }
 
   /** Pontua um comando contra o que foi digitado.
@@ -2369,10 +2488,12 @@
     const lista = $("#paleta-lista");
     if (!paletaFiltrada.length) {
       lista.innerHTML = '<li class="paleta-vazia">Nada encontrado por aqui.</li>';
+      $("#paleta-entrada").setAttribute("aria-activedescendant", "");
       return;
     }
     lista.innerHTML = paletaFiltrada.map((c, i) => `
       <li class="paleta-item" role="option" data-indice="${i}"
+          id="paleta-opcao-${i}"
           aria-selected="${i === paletaSelecionada}">
         <span class="icone">${c.icone}</span>
         <span>${escapar(c.titulo)}</span>
@@ -2385,6 +2506,11 @@
     });
     const ativo = $('.paleta-item[aria-selected="true"]', lista);
     if (ativo) ativo.scrollIntoView({ block: "nearest" });
+    // Sem `aria-activedescendant`, o leitor de tela não anuncia qual comando
+    // está destacado: as setas mudam a seleção em silêncio.
+    $("#paleta-entrada").setAttribute(
+      "aria-activedescendant", ativo ? ativo.id : ""
+    );
   }
 
   function executarComando(comando) {

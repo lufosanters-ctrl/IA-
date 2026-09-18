@@ -28,12 +28,23 @@ PEDIDOS_DE_AUTONOMIA = (
 )
 
 # Palavras com que o estudante pede a resolucao completa.
+# Pedidos que valem o salto para o último degrau. Todos são formulações em
+# PRIMEIRA PESSOA, dirigidas ao tutor.
+#
+# "resolva" sozinho ficou de fora de propósito: é a primeira palavra de quase
+# todo enunciado de matemática ("Resolva a equação..."), e bastava colar a
+# questão no campo de pedido para receber a resolução inteira sem passar por
+# nenhum degrau. A escada existe justamente para isso não acontecer.
 PEDIDOS_DE_RESOLUCAO = (
-    "resolva", "resolve logo", "mostre a resolucao", "mostre a resolução",
-    "me de a resposta", "me dê a resposta", "qual e a resposta",
+    "resolve logo", "resolva pra mim", "resolve pra mim", "resolva para mim",
+    "mostre a resolucao", "mostre a resolução", "mostra a resolucao",
+    "mostra a resolução", "me de a resposta", "me dê a resposta",
+    "me da a resposta", "me dá a resposta", "qual e a resposta",
     "qual é a resposta", "resolucao completa", "resolução completa",
     "desisto", "nao consigo mais", "não consigo mais", "explica tudo",
-    "mostra a solucao", "mostra a solução", "gabarito",
+    "mostra a solucao", "mostra a solução", "mostre a solucao",
+    "mostre a solução", "gabarito", "entrega a resposta", "quero a resposta",
+    "so a resposta", "só a resposta", "me diz a resposta", "me fala a resposta",
 )
 
 
@@ -159,4 +170,26 @@ def detectar_pedido(texto: str) -> str:
         return "autonomia"
     if any(normalizar(p) in alvo for p in PEDIDOS_DE_RESOLUCAO):
         return "resolucao"
+    # "resolva" isolado num pedido curto é um pedido; "Resolva a equação
+    # x^2-5x+6=0" é o enunciado colado de volta no campo, e aí a escada não
+    # pode ser pulada.
+    if "resolva" in alvo and _parece_pedido_e_nao_enunciado(alvo):
+        return "resolucao"
     return ""
+
+
+# Substantivos que denunciam enunciado colado, não pedido ao tutor.
+_PALAVRAS_DE_ENUNCIADO = (
+    "equacao", "inequacao", "sistema", "expressao", "problema", "questao",
+    "funcao", "integral", "limite", "matriz", "triangulo", "polinomio",
+)
+
+
+def _parece_pedido_e_nao_enunciado(alvo: str) -> bool:
+    """Texto curto, sem equação, sem número e sem vocabulário de enunciado."""
+    return (
+        len(alvo) <= 45
+        and "=" not in alvo
+        and not any(c.isdigit() for c in alvo)
+        and not any(p in alvo for p in _PALAVRAS_DE_ENUNCIADO)
+    )

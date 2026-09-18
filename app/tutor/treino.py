@@ -213,7 +213,9 @@ def montar_treino(
     Sem pedido explícito, o treino é o do erro que mais se repete — que é
     justamente o que o estudante não está corrigindo sozinho.
     """
-    padroes = padroes_de_erro(minimo=1)
+    # Duas ocorrências, não uma: "você vem cometendo" é uma afirmação sobre
+    # um padrão, e uma ocorrência isolada não é padrão nenhum.
+    padroes = padroes_de_erro(minimo=2)
     recorrentes = padroes.get("recorrentes", [])
 
     if not tipo_erro and recorrentes:
@@ -222,10 +224,20 @@ def montar_treino(
     estrategia = ESTRATEGIAS_PREVENTIVAS.get(tipo_erro, "")
     descricao = TIPOS_DE_ERRO.get(tipo_erro, "")
 
-    if tipo_erro and descricao:
+    ocorrencias = next(
+        (p["ocorrencias"] for p in recorrentes if p["tipo"] == tipo_erro), 0
+    )
+    if tipo_erro and descricao and ocorrencias >= 2:
         motivo = (
-            f"Você vem cometendo erro do tipo “{tipo_erro}” ({descricao}). "
-            "Este treino ataca exatamente isso."
+            f"Erro do tipo “{tipo_erro}” ({descricao}) apareceu "
+            f"{ocorrencias} vezes nas suas tentativas. Este treino ataca "
+            "exatamente isso."
+        )
+    elif tipo_erro and descricao:
+        motivo = (
+            f"Treino de reforço em “{tipo_erro}” ({descricao}). Ainda não há "
+            "repetição suficiente para chamar de padrão — isto é prática, "
+            "não diagnóstico."
         )
     else:
         motivo = "Treino geral, sem padrão de erro acumulado ainda."

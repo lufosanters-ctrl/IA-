@@ -60,9 +60,30 @@ class Resolucao:
 
     @property
     def verificado(self) -> bool:
-        """Toda checagem executada passou?"""
+        """O resultado pode ser apresentado como resposta CONFERIDA do problema?
+
+        Não basta as checagens passarem. A substituição confere a raiz na
+        equação que o motor leu — nunca na pergunta que o enunciado fez. Se o
+        enunciado impõe uma condição em prosa que a leitura não aplicou, ou
+        se a pergunta não era pelas raízes, o que existe é uma leitura
+        parcial, e chamá-la de verificada ensina errado.
+        """
         todas = list(self.analise.checagens) + list(self.confronto)
-        return bool(todas) and all(c.passou for c in todas)
+        if not todas or not all(c.passou for c in todas):
+            return False
+        return not self.analise.ressalvas and self.analise.responde_a_pergunta
+
+    @property
+    def ressalvas(self) -> list[str]:
+        """O que a leitura automática deixou de fora, em português claro."""
+        avisos = list(self.analise.ressalvas)
+        if not self.analise.responde_a_pergunta and self.analise.solucoes:
+            avisos.append(
+                "o enunciado não pede as raízes em si, mas algo calculado a "
+                "partir delas — o que está abaixo é a leitura da equação, não "
+                "a resposta final"
+            )
+        return avisos
 
     @property
     def tem_alerta(self) -> bool:
@@ -80,6 +101,7 @@ class Resolucao:
             "confronto": [c.para_dict() for c in self.confronto],
             "passes": self.passes,
             "verificado": self.verificado,
+            "ressalvas": self.ressalvas,
             "tem_alerta": self.tem_alerta,
             "aviso": self.aviso,
             "duracao_ms": self.duracao_ms,
@@ -195,13 +217,34 @@ def _resolucao_simbolica(analise: AnaliseSimbolica, diagnostico: Diagnostico) ->
     for observacao in analise.observacoes:
         linhas.append(f"- {observacao}")
 
-    linhas += ["", "## Resposta", ""]
+    ressalvas = list(analise.ressalvas)
+    if not analise.responde_a_pergunta and analise.solucoes:
+        ressalvas.append(
+            "o enunciado não pede as raízes em si, mas algo calculado a partir "
+            "delas"
+        )
+
+    titulo = "## Resposta" if not ressalvas else "## O que a álgebra leu"
+    linhas += ["", titulo, ""]
     if analise.solucoes:
         partes = [
             " ou ".join(f"${variavel} = {valor}$" for valor in valores)
             for variavel, valores in (analise.solucoes_latex or analise.solucoes).items()
         ]
         linhas.append("; ".join(partes))
+        if ressalvas:
+            linhas += [
+                "",
+                "**Isto ainda não é a resposta do problema.** A leitura "
+                "automática deixou de fora:",
+                "",
+            ]
+            linhas += [f"- {r}" for r in ressalvas]
+            linhas += [
+                "",
+                "Retome a partir daqui aplicando essa condição você mesmo — é "
+                "justamente o passo que o enunciado está cobrando.",
+            ]
     else:
         linhas.append(
             "Sem chave de API configurada, o motor só resolve automaticamente o "
@@ -210,12 +253,19 @@ def _resolucao_simbolica(analise: AnaliseSimbolica, diagnostico: Diagnostico) ->
             "explicada."
         )
 
-    linhas += [
-        "",
-        "> _Modo simbólico: resolvido e verificado por álgebra computacional, "
-        "sem modelo de linguagem. Cada valor acima foi substituído na equação "
-        "original._",
-    ]
+    if ressalvas:
+        rodape = (
+            "> _Modo simbólico, leitura parcial: a álgebra resolveu a equação "
+            "que conseguiu ler, e a substituição confere nessa equação — não "
+            "na pergunta completa do enunciado._"
+        )
+    else:
+        rodape = (
+            "> _Modo simbólico: resolvido e verificado por álgebra computacional, "
+            "sem modelo de linguagem. Cada valor acima foi substituído na equação "
+            "original._"
+        )
+    linhas += ["", rodape]
     return "\n".join(linhas)
 
 

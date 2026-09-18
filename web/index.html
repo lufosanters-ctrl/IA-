@@ -43,6 +43,10 @@
 
     <nav class="navegacao" role="tablist" aria-label="Seções do Núcleo"
          aria-orientation="vertical">
+      <!-- `role="tablist"` só admite `tab` (ou `group`) como filho. Os rótulos
+           soltos viravam ruído no leitor de tela; envolvê-los em `role="group"`
+           com `display: contents` mantém o layout e corrige a semântica. -->
+      <div role="group" aria-labelledby="grupo-estudar" class="grupo-abas">
       <p class="grupo-nav" id="grupo-estudar">Estudar</p>
       <button class="nav-item ativo" data-aba="pesquisar" role="tab"
               id="aba-botao-pesquisar" aria-controls="aba-pesquisar"
@@ -69,7 +73,9 @@
         Gramática
       </button>
 
-      <p class="grupo-nav">Meu material</p>
+      </div>
+      <div role="group" aria-labelledby="grupo-material" class="grupo-abas">
+      <p class="grupo-nav" id="grupo-material">Meu material</p>
       <button class="nav-item" data-aba="revisao" role="tab"
               id="aba-botao-revisao" aria-controls="aba-revisao"
               aria-selected="false" tabindex="-1">
@@ -102,6 +108,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
         Bases de dados
       </button>
+      </div>
     </nav>
 
     <div class="painel-progresso">
@@ -295,7 +302,9 @@
             placeholder="Cole a questão aqui, de matemática, português ou inglês."></textarea>
         </label>
 
-        <div class="area-envio compacta" id="tut-area-imagem">
+        <div class="area-envio compacta" id="tut-area-imagem"
+             role="button" tabindex="0"
+             aria-label="Enviar a foto da questão. Também aceita arrastar e soltar.">
           <input type="file" id="tut-imagem" hidden accept="image/png,image/jpeg,image/webp">
           <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="m21 15-5-5L5 19"/></svg>
           <b>Ou envie a foto da questão</b>
@@ -422,7 +431,9 @@
 
       <div class="metricas-biblioteca" id="metricas-biblioteca"></div>
 
-      <div class="area-envio" id="area-envio">
+      <div class="area-envio" id="area-envio"
+             role="button" tabindex="0"
+             aria-label="Enviar livros para a biblioteca. Também aceita arrastar e soltar.">
         <input type="file" id="entrada-arquivos" multiple hidden
                accept=".pdf,.epub,.txt,.md,.markdown,.htm,.html">
         <svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
@@ -535,7 +546,9 @@
     <div class="paleta-campo">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input id="paleta-entrada" type="text" placeholder="Ir para… (pesquisar, tutor, crase, revisão)"
-             aria-label="Buscar seção ou ação" autocomplete="off">
+             aria-label="Buscar seção ou ação" autocomplete="off"
+             role="combobox" aria-expanded="true" aria-controls="paleta-lista"
+             aria-autocomplete="list">
       <kbd>esc</kbd>
     </div>
     <ul class="paleta-lista" id="paleta-lista" role="listbox" aria-label="Resultados"></ul>

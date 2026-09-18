@@ -151,6 +151,30 @@ def _normalizar(texto: str) -> str:
 _NOMES_DE_FUNCAO = {"f", "g", "h", "F", "G", "H", "P", "u", "v"}
 
 
+# No ensino brasileiro, "log x" sem base escrita é logaritmo DECIMAL. O
+# SymPy usa `log` para o natural, e essa diferença silenciosa transformava
+# "log(x) + log(x-3) = 1" (resposta 5) em uma raiz irracional — com todas as
+# checagens passando, porque a substituição confere na equação que o próprio
+# motor leu, não na que o enunciado escreveu.
+BASE_PADRAO_DO_LOG = 10
+
+
+def _log_na_base(base: int) -> Any:
+    """`log(x)` na base dada; `log(x, b)` continua respeitando o `b` escrito."""
+    def log(*argumentos: Any) -> Any:
+        if len(argumentos) > 1:
+            return sp.log(argumentos[0], argumentos[1])
+        return sp.log(argumentos[0], base)
+    return log
+
+
+def _funcoes(base_log: int | None) -> dict[str, Any]:
+    """Tabela de funções com o logaritmo ajustado à base do enunciado."""
+    tabela = dict(_FUNCOES)
+    tabela["log"] = _log_na_base(base_log or BASE_PADRAO_DO_LOG)
+    return tabela
+
+
 def _funcoes_declaradas(texto: str) -> dict[str, Any]:
     """Declara f, g, h... como funções quando aparecem aplicadas."""
     declaradas: dict[str, Any] = {}
@@ -162,7 +186,7 @@ def _funcoes_declaradas(texto: str) -> dict[str, Any]:
     return declaradas
 
 
-def ler(bruto: str) -> sp.Expr:
+def ler(bruto: str, base_log: int | None = None) -> sp.Expr:
     """Le uma expressao (sem sinal de igual) com seguranca."""
     texto = _normalizar(_higienizar(bruto))
     if "=" in texto:
@@ -170,7 +194,7 @@ def ler(bruto: str) -> sp.Expr:
     try:
         expressao = parse_expr(
             texto,
-            local_dict=dict(_FUNCOES) | _funcoes_declaradas(texto),
+            local_dict=_funcoes(base_log) | _funcoes_declaradas(texto),
             global_dict=_ESPACO_GLOBAL,
             transformations=TRANSFORMACOES,
             evaluate=True,
@@ -182,13 +206,13 @@ def ler(bruto: str) -> sp.Expr:
     return expressao
 
 
-def ler_equacao(bruto: str) -> sp.Eq:
+def ler_equacao(bruto: str, base_log: int | None = None) -> sp.Eq:
     """Le uma igualdade `lado esquerdo = lado direito`."""
     texto = _normalizar(_higienizar(bruto))
     partes = [p for p in texto.split("=") if p.strip()]
     if len(partes) != 2:
         raise ErroSimbolico("a equação precisa ter exatamente um sinal de igual")
-    return sp.Eq(ler(partes[0]), ler(partes[1]))
+    return sp.Eq(ler(partes[0], base_log), ler(partes[1], base_log))
 
 
 def incognitas(objeto: sp.Basic) -> list[sp.Symbol]:
@@ -295,6 +319,7 @@ def _candidatos_a_equacao(texto: str) -> list[str]:
 
 def extrair_equacoes(enunciado: str, maximo: int = 6) -> list[sp.Eq]:
     """Acha as igualdades presentes no texto do problema."""
+    base_log = base_do_logaritmo(enunciado)
     candidatos: list[str] = []
     # O que vem entre cifrões é matemática declarada: entra sem filtro.
     for achado in _RE_LATEX.findall(enunciado or ""):
@@ -309,7 +334,7 @@ def extrair_equacoes(enunciado: str, maximo: int = 6) -> list[sp.Eq]:
             continue
         vistas.add(bruto)
         try:
-            equacao = ler_equacao(bruto)
+            equacao = ler_equacao(bruto, base_log)
         except ErroSimbolico:
             continue
         # Uma "equação" sem incógnita nenhuma costuma ser um trecho de texto.
@@ -368,6 +393,28 @@ class AnaliseSimbolica:
     checagens: list[Checagem] = field(default_factory=list)
     observacoes: list[str] = field(default_factory=list)
     resolveu: bool = False
+    # Condicoes escritas em prosa que a leitura automatica NAO aplicou.
+    # Enquanto houver uma delas, o resultado nao pode ser apresentado como
+    # conferido: a algebra resolveu outra pergunta, nao a do enunciado.
+    ressalvas: list[str] = field(default_factory=list)
+    # A pergunta do enunciado e mesmo "quais sao as raizes"?
+    responde_a_pergunta: bool = True
+
+    @property
+    def confiavel(self) -> bool:
+        """O resultado pode ser apresentado como resposta do problema?
+
+        So quando a algebra resolveu, todas as checagens passaram, nenhuma
+        condicao do enunciado ficou de fora e a pergunta era mesmo pelas
+        raizes. Faltando qualquer uma, o que ha e uma leitura parcial — e
+        exibir isso com selo de conferido ensina errado.
+        """
+        return (
+            self.resolveu
+            and not self.ressalvas
+            and self.responde_a_pergunta
+            and all(c.passou for c in self.checagens)
+        )
 
     def para_dict(self) -> dict[str, Any]:
         return {
@@ -378,7 +425,65 @@ class AnaliseSimbolica:
             "checagens": [c.para_dict() for c in self.checagens],
             "observacoes": self.observacoes,
             "resolveu": self.resolveu,
+            "ressalvas": self.ressalvas,
+            "responde_a_pergunta": self.responde_a_pergunta,
+            "confiavel": self.confiavel,
         }
+
+
+# --------------------------------------------------------------------------
+# Condicoes que o enunciado escreve em prosa e a algebra nao aplica sozinha
+# --------------------------------------------------------------------------
+
+# Cada par e (regex, como explicar a ressalva). A explicacao vai inteira para
+# o estudante: ele precisa saber EXATAMENTE o que a maquina deixou de fora.
+_CONDICOES_NAO_APLICADAS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bem\s+graus\b|\bgraus\b|°", re.IGNORECASE),
+     "o enunciado pede a resposta em graus, e a álgebra resolveu em radianos"),
+    (re.compile(r"\bno intervalo\b|\bpertencente a\b|\bcom\s+\w+\s*∈|"
+                r"\b0\s*[≤<]=?\s*[a-z]\s*[≤<]=?", re.IGNORECASE),
+     "o enunciado limita a resposta a um intervalo, e a álgebra devolve "
+     "apenas as soluções principais"),
+    (re.compile(r"\bsabendo que\s+[a-z]\s*[<>≤≥]|\bcom\s+[a-z]\s*[<>≤≥]|"
+                r"\b[a-z]\s*[<>]\s*0\b", re.IGNORECASE),
+     "o enunciado impõe uma restrição de sinal ou de domínio que a álgebra "
+     "não aplicou ao conjunto solução"),
+    (re.compile(r"\bn[úu]meros? naturais?\b|\bn[úu]meros? inteiros?\b|"
+                r"\b[a-z]\s+natural\b|\b[a-z]\s+inteiro\b|"
+                r"\b[a-z]\s*∈\s*(?:N|Z)\b|\binteiros? positivos?\b",
+                re.IGNORECASE),
+     "o enunciado restringe a resposta a inteiros ou naturais, e a álgebra "
+     "trabalhou nos reais"),
+)
+
+# "log" sem base declarada: no ensino brasileiro e base 10, nao logaritmo
+# natural. Mapear para ln — o padrao do SymPy — produzia resposta errada com
+# todas as checagens passando, porque a checagem substitui na equacao que o
+# proprio motor leu.
+_RE_BASE_DECLARADA = re.compile(
+    r"\bna base\s*(\d+)|\bbase\s*(\d+)|\blog_\{?(\d+)\}?", re.IGNORECASE
+)
+
+
+def base_do_logaritmo(enunciado: str) -> int | None:
+    """A base que o enunciado declara para o logaritmo, se declarar alguma."""
+    achado = _RE_BASE_DECLARADA.search(enunciado or "")
+    if not achado:
+        return None
+    for grupo in achado.groups():
+        if grupo:
+            valor = int(grupo)
+            return valor if 2 <= valor <= 64 else None
+    return None
+
+
+def condicoes_nao_aplicadas(enunciado: str) -> list[str]:
+    """Condições em prosa que a leitura automática deixou de fora."""
+    texto = enunciado or ""
+    return [
+        explicacao for padrao, explicacao in _CONDICOES_NAO_APLICADAS
+        if padrao.search(texto)
+    ]
 
 
 def resolver(equacao: sp.Eq, variavel: sp.Symbol | None = None) -> list[sp.Expr]:
@@ -549,6 +654,10 @@ def verificar_dominio(equacao: sp.Eq, variavel: sp.Symbol,
 def analisar(enunciado: str, verificar_probabilidade: bool = False) -> AnaliseSimbolica:
     """Le o enunciado, resolve o que der e roda o protocolo anti-erro."""
     analise = AnaliseSimbolica()
+    analise.ressalvas = condicoes_nao_aplicadas(enunciado)
+    # "Calcule a² + b² sabendo que a e b são raízes de..." não pede as raízes:
+    # entregar as raízes como "## Resposta" responde outra pergunta.
+    analise.responde_a_pergunta = pede_resolver_equacao(enunciado)
     try:
         equacoes = extrair_equacoes(enunciado)
     except ErroSimbolico as exc:
@@ -621,11 +730,18 @@ def analisar(enunciado: str, verificar_probabilidade: bool = False) -> AnaliseSi
 # O confronto "a resposta contém as raízes?" só faz sentido quando a pergunta
 # é justamente resolver a equação. Em "calcule r1² + r2²", a resposta CERTA não
 # contém as raízes — e o confronto acusaria um erro que não existe.
+# `(?![aoe]\b)` mantém fora os artigos: "determine A RAZÃO entre os lados" não
+# pede o valor de uma incógnita chamada "a".
 _RE_PEDE_RAIZES = re.compile(
     r"\bresolva\b|\bresolu[çc][ãa]o\b|\bconjunto solu[çc][ãa]o\b|"
     r"\bra[íi]zes? (?:da|das|de|do) equa[çc][ãa]o\s+(?:s[ãa]o|[ée])\b|"
     r"\bvalores? de [a-z] que satisfaz|\bqual o valor de [a-z] (?:na|que)\b|"
-    r"\bdetermine [a-z] (?:tal que|sabendo)\b|\bencontre as ra[íi]zes\b",
+    r"\bdetermine [a-z] (?:tal que|sabendo)\b|\bencontre as ra[íi]zes\b|"
+    r"\bdetermine\s+(?:o valor de\s+)?(?![aoe]\b)[a-z]\b"
+    r"(?:\s*(?:,|e)\s*(?![aoe]\b)[a-z]\b)*|"
+    r"\bcalcule\s+o valor de\s+(?![aoe]\b)[a-z]\b|"
+    r"\bencontre\s+(?:o valor de\s+)?(?![aoe]\b)[a-z]\b|"
+    r"\bqual\s+(?:o|[ée] o)\s+valor de\s+(?![aoe]\b)[a-z]\b",
     re.IGNORECASE,
 )
 

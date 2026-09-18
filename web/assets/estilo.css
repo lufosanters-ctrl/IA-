@@ -22,7 +22,7 @@
   --borda-forte: rgba(148, 170, 205, .26);
   --texto: #e8eefb;
   --texto-2: #a9b6cf;
-  --texto-3: #6e7e9c;
+  --texto-3: #8fa0bd;   /* 4,5:1 sobre --fundo no tema escuro */
 
   --raio: 16px;
   --raio-sm: 10px;
@@ -43,8 +43,8 @@
   --borda-forte: rgba(15, 32, 62, .2);
   --texto: #101728;
   --texto-2: #46536e;
-  --texto-3: #7a87a1;
-  --jade-300: #059669;
+  --texto-3: #5b6880;   /* 4,6:1 sobre --fundo no tema claro */
+  --jade-300: #047857;   /* 5,1:1 sobre --fundo no tema claro */
   --sombra: 0 1px 2px rgba(16,32,62,.06), 0 10px 26px -14px rgba(16,32,62,.28);
   --sombra-alta: 0 2px 6px rgba(16,32,62,.08), 0 24px 52px -22px rgba(16,32,62,.36);
 }
@@ -93,6 +93,12 @@ code, pre, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
 
 /* ------------------------------- layout -------------------------------- */
 .aplicacao { display: grid; grid-template-columns: var(--largura-lateral) 1fr; min-height: 100vh; }
+/* Sem `min-width: 0`, a coluna de conteúdo cresce até o mínimo intrínseco
+   do filho mais largo. Um `.segmentado` de três botões que não quebra
+   linha inflava a coluna a 387px numa tela de 360 — e como o `body` tem
+   `overflow-x: hidden`, o texto era cortado sem barra de rolagem. */
+.aplicacao > * { min-width: 0; }
+.conteudo { min-width: 0; }
 
 .lateral {
   position: sticky; top: 0; height: 100vh;
@@ -240,7 +246,7 @@ code, pre, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
 .grupo-opcao > label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--texto-3); }
 .grupo-opcao > label small { text-transform: none; letter-spacing: 0; font-weight: 400; opacity: .8; }
 
-.segmentado { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid var(--borda); border-radius: 11px; background: color-mix(in srgb, var(--fundo) 60%, transparent); }
+.segmentado { display: inline-flex; flex-wrap: wrap; max-width: 100%; padding: 3px; gap: 2px; border: 1px solid var(--borda); border-radius: 11px; background: color-mix(in srgb, var(--fundo) 60%, transparent); }
 .segmentado button {
   padding: 6px 13px; border: 0; border-radius: 8px; background: transparent;
   color: var(--texto-2); font: inherit; font-size: 13px; cursor: pointer; transition: var(--transicao);
@@ -570,7 +576,17 @@ code, pre, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
   .navegacao { flex-direction: row; gap: 4px; }
   .nav-item { white-space: nowrap; padding: 8px 11px; font-size: 13px; }
   .nav-item.ativo::before { display: none; }
-  .rodape-lateral { margin-left: auto; }
+  /* Na tira horizontal, `margin-left:auto` empurrava o botão de tema para
+     x≈1300px, fora da tela: só aparecia depois de arrastar a tira inteira, e
+     o atalho da paleta (a outra rota até o tema) fica oculto no celular.
+     Grudado à direita, ele fica sempre visível. */
+  .rodape-lateral {
+    margin-left: auto;
+    position: sticky;
+    right: 0;
+    padding-left: 10px;
+    background: linear-gradient(90deg, transparent, var(--superficie-solida) 22%);
+  }
   .estado-modelo { display: none; }
   .conteudo { padding: 26px 16px 60px; }
   /* lupa + campo na primeira linha, botão ocupando a linha inteira abaixo */
@@ -1212,3 +1228,45 @@ code, pre, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
   .numero-treino { width: 22px; height: 22px; font-size: 12px; }
   .enunciado-treino { font-size: 14.5px; }
 }
+
+/* ------------------------------------------------------------------ *
+ * Cartão de erro persistente
+ *
+ * O aviso flutuante some em seis segundos. Quando uma ação falha, o
+ * motivo precisa ficar onde o resultado apareceria — senão o botão
+ * parece simplesmente não responder.
+ * ------------------------------------------------------------------ */
+
+.cartao-erro {
+  margin-top: 16px;
+  border-color: color-mix(in srgb, var(--ambar) 42%, transparent);
+  background: color-mix(in srgb, var(--ambar) 7%, var(--superficie));
+}
+.erro-topo {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 8px;
+  color: var(--ambar);
+  font-size: 14px;
+}
+.erro-topo svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.cartao-erro p { margin: 0; font-size: 14.5px; line-height: 1.6; }
+.cartao-erro .erro-sugestao {
+  margin-top: 8px;
+  font-size: 13.5px;
+  color: var(--texto-2);
+}
+.valor.sem-dado { font-size: 12px; color: var(--texto-2); font-weight: 500; }
+
+/* `display: contents` deixa o agrupamento existir só para a semântica: os
+   botões continuam sendo filhos diretos do flex da navegação. */
+.grupo-abas { display: contents; }

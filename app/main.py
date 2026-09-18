@@ -550,15 +550,43 @@ async def matematica_conferir(pedido: PedidoConferencia) -> dict[str, Any]:
     """Confronta a resposta do estudante com o sistema de álgebra computacional."""
     analise = await matematica.analisar_enunciado(pedido.enunciado, False)
     confronto = await matematica.confrontar_resposta(pedido.enunciado, pedido.resposta)
-    checagens = list(analise.checagens) + list(confronto)
+
+    # O veredito é sobre a resposta DO ESTUDANTE, e quem a compara com a
+    # álgebra é o confronto. Somar `analise.checagens` aqui dava "confere"
+    # para qualquer coisa — inclusive "1000" e "não sei" — porque a
+    # autoverificação do motor sempre passa e o confronto vinha vazio.
+    if not confronto:
+        veredito = "indeterminado"
+        motivo = (
+            "Não consegui confrontar a sua resposta com a álgebra. Isso "
+            "acontece quando o enunciado não traz equação legível, quando a "
+            "pergunta não é pelas raízes, ou quando a sua resposta não traz "
+            "valores numéricos para comparar."
+        )
+    elif all(c.passou for c in confronto):
+        veredito = "confere"
+        motivo = "Os valores da sua resposta batem com os que a álgebra obteve."
+    else:
+        veredito = "nao_confere"
+        motivo = "Há divergência entre a sua resposta e o resultado simbólico."
+
+    # Uma condição do enunciado que a leitura não aplicou torna o próprio
+    # resultado do motor pouco confiável: dizer "não confere" nesse caso pode
+    # estar acusando uma resposta certa.
+    if analise.ressalvas and veredito == "nao_confere":
+        veredito = "indeterminado"
+        motivo = (
+            "A sua resposta diverge do que a álgebra leu, mas a leitura está "
+            "incompleta: " + "; ".join(analise.ressalvas) + ". Sem aplicar "
+            "essa condição, não dá para dizer quem está certo."
+        )
+
     return {
         "analise": analise.para_dict(),
         "confronto": [c.para_dict() for c in confronto],
-        "veredito": (
-            "confere" if checagens and all(c.passou for c in checagens)
-            else "nao_confere" if any(not c.passou for c in checagens)
-            else "indeterminado"
-        ),
+        "veredito": veredito,
+        "motivo": motivo,
+        "ressalvas": list(analise.ressalvas),
     }
 
 
