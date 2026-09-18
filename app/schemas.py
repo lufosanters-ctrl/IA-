@@ -95,6 +95,35 @@ class PedidoConferencia(BaseModel):
     resposta: str = Field(min_length=1, max_length=2000)
 
 
+# --- Tutoria -------------------------------------------------------------
+
+class PedidoSessaoTutor(BaseModel):
+    enunciado: str = Field(min_length=3, max_length=6000)
+    materia: Literal["", "matematica", "portugues", "ingles", "geral"] = ""
+    tentativa: str = Field(default="", max_length=6000)
+
+
+class PedidoAjuda(BaseModel):
+    pedido: str = Field(default="", max_length=400,
+                        description="o que o estudante escreveu ao pedir ajuda")
+
+
+class PedidoTentativa(BaseModel):
+    texto: str = Field(min_length=1, max_length=6000)
+
+
+class PedidoAnaliseGramatical(BaseModel):
+    frase: str = Field(min_length=2, max_length=2000)
+
+
+class PedidoRegencia(BaseModel):
+    verbo: str = Field(min_length=2, max_length=40)
+
+
+class PedidoIngles(BaseModel):
+    texto: str = Field(min_length=2, max_length=2000)
+
+
 class RespostaSaude(BaseModel):
     nome: str
     versao: str

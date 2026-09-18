@@ -15,6 +15,11 @@ Para matemática há um motor separado, no padrão ITA/IME: ele **resolve com
 álgebra computacional**, verifica o resultado por um caminho independente e
 **critica a própria solução** antes de entregá-la.
 
+Para gramática, o mesmo princípio: crase, regência, colocação pronominal e
+concordância são analisadas por **regras codificadas**, não por opinião de
+modelo. E há um **modo tutor** que não entrega a resposta — a ajuda sobe um
+degrau de cada vez, e recua quando você está quase lá.
+
 Feito em **Python** (FastAPI, `asyncio`) com interface web sem etapa de build.
 
 ---
@@ -108,6 +113,99 @@ Python" vai para Stack Exchange e arXiv. Você pode sobrescrever a escolha
 marcando as bases na própria busca.
 
 ---
+
+## Modo tutor: a escada de ajuda
+
+O princípio é o da **mínima ajuda necessária**. Entregar a resolução destrói o
+exercício; negar ajuda a quem está travado de verdade produz frustração. A
+escada existe para que a ajuda cresça um degrau por vez, e só quando o anterior
+não bastou.
+
+| Degrau | O que aparece |
+|---|---|
+| 0 · Orientação | qual é o assunto e o que a questão pede |
+| 1 · Pergunta guia | uma pergunta que obriga a pensar no ponto certo |
+| 2 · Pista conceitual | a propriedade que resolve, sem aplicá-la |
+| 3 · Pista operacional | o próximo passo concreto, sem executá-lo |
+| 4 · Primeiro passo | a primeira transformação, e o problema volta pra você |
+| 5 · Resolução parcial | tudo até antes da etapa decisiva |
+| 6 · Resolução completa | só a pedido, com ideia, desenvolvimento e verificação |
+
+Três comportamentos importam mais que a escada em si:
+
+- **Acerto parcial faz a ajuda RECUAR.** Quem está quase lá não precisa de mais
+  andaime, precisa de menos. É a mesma lógica do *fading*: quem já mostra
+  domínio de um assunto começa a escada mais alto da próxima vez.
+- **"Não me dê a resposta" é comando forte.** Com esse pedido, a escada nunca
+  passa do degrau 5, por mais vezes que você peça ajuda.
+- **O tutor aponta o PRIMEIRO erro, não todos.** Erros posteriores costumam ser
+  consequência do primeiro, e listar tudo de uma vez confunde em vez de ensinar.
+  A resposta segue sempre a mesma forma: até onde o raciocínio se sustenta, onde
+  ele sai do rumo, por que aquele passo não funciona, e a pergunta que faz você
+  corrigir sozinho.
+
+**Padrões de erro.** Cada tentativa é classificada (conceitual, interpretação,
+algébrico, sinal, distração, fora das condições, confusão entre regras,
+incompleto). Quando um tipo se repete, o tutor para de corrigir o deslize e
+passa a ensinar a rotina que o previne.
+
+**Questão fotografada.** Você manda a foto, o tutor transcreve e **pede sua
+confirmação antes de resolver** — enunciado, alternativas, o que você escreveu
+à mão e os trechos que ficaram ilegíveis. Erro de leitura produz resolução
+perfeita da questão errada, e é o tipo de erro que passa despercebido porque a
+conta fecha.
+
+## Gramática verificada
+
+Crase e colocação pronominal são os tópicos de português que mais se parecem
+com matemática, e por isso dão para verificar de verdade:
+
+```
+crase = o termo anterior exige a preposição "a"
+      + o termo seguinte admite o artigo "a"
+```
+
+O motor testa as duas condições separadamente e na ordem certa. As
+**proibições** vêm primeiro, porque são absolutas: antes de verbo, de palavra
+masculina, de pronome pessoal, de plural com "a" no singular, ou depois de
+outra preposição, acabou — nem precisa olhar a regência. Depois vêm as
+**locuções consagradas**, os casos **facultativos** (marcados como tais, sem
+fingir resposta única) e, por fim, a **regência**.
+
+Na regência está a decisão mais importante do motor: quando o verbo exige "a"
+em todos os sentidos registrados, ele conclui; quando o verbo muda de regência
+conforme o sentido — "assistir", "visar", "aspirar", "implicar" — ele **devolve
+a pergunta** em vez de chutar, porque quem decide o sentido é você.
+
+Também estão codificados:
+
+- **colocação pronominal**, por um algoritmo quase fechado: há palavra atrativa
+  antes do verbo? próclise. Não há e o verbo está no futuro? mesóclise. Senão,
+  ênclise;
+- **concordância**, nas armadilhas clássicas: "haver" impessoal, "fazer"
+  temporal, partícula "se" apassivadora × índice de indeterminação, "um dos que";
+- **regência verbal e nominal**, com todos os sentidos de cada verbo e um
+  exemplo para cada.
+
+## Inglês em cinco dimensões
+
+"Está certo?" é pergunta insuficiente. Uma frase pode ser perfeitamente
+gramatical e ser algo que nenhum falante diria. O módulo separa:
+
+| Dimensão | Pergunta |
+|---|---|
+| grammaticality | as regras permitem? |
+| meaning | o que comunica exatamente? |
+| naturalness | um falante diria assim nesta situação? |
+| register | serve para conversa, e-mail de trabalho ou texto acadêmico? |
+| frequency | é corrente ou raro o bastante para soar afetado? |
+
+Há detecção determinística dos **erros de transferência do português** — "people
+is", "explain me this", "depends of", "married with", "since three years" — cada
+um com o motivo estrutural e o exemplo certo. E uma tabela de **contrastes**,
+porque a dúvida real nunca é sobre uma construção isolada: é sempre present
+perfect **ou** simple past, make **ou** do, for **ou** since. O que destrava é o
+critério de decisão, não a definição de cada um.
 
 ## Motor matemático
 
@@ -267,6 +365,22 @@ app/
   consulta.py        intenção, ponte bilíngue, realimentação de relevância
   ranking.py         BM25 + MMR + pesos de credibilidade e de intenção
   cache.py           cache LRU com expiração
+  gramatica/
+    lexico.py        gênero, número e classes fechadas
+    regencia.py      regência verbal e nominal, sentido a sentido
+    crase.py         as duas condições da crase, testadas na ordem certa
+    colocacao.py     próclise, mesóclise e ênclise por algoritmo
+    concordancia.py  as armadilhas clássicas, com o teste de cada uma
+    analise.py       reúne os motores num veredito só
+  ingles/
+    dimensoes.py     as cinco dimensões e os erros de transferência
+    contrastes.py    pares que se confundem, com o critério de decisão
+  tutor/
+    escada.py        os sete degraus e a política de mínima ajuda
+    sessao.py        sessões, tentativas, padrões de erro e fading
+    tutoria.py       orquestração: verificador → degrau → resposta
+    visao.py         leitura de questão fotografada, com confirmação
+    prompts.py       prompts do tutor, do diagnóstico e da generalização
   matematica/
     classificacao.py assunto, dificuldade e profundidade adaptativa
     simbolico.py     álgebra computacional: leitura segura, solução, verificação
@@ -348,18 +462,35 @@ curl -X POST localhost:8000/api/matematica/conferir \
   -d '{"enunciado": "Resolva x^2 - 5x + 6 = 0.", "resposta": "x = 2"}'
 ```
 
+```bash
+# abrir uma sessão de tutoria (começa no degrau 0)
+curl -X POST localhost:8000/api/tutor/sessao \
+  -H 'Content-Type: application/json' \
+  -d '{"enunciado": "A crase está correta em: Vou a praia?"}'
+
+# analisar uma frase pelos motores de gramática
+curl -X POST localhost:8000/api/gramatica/analisar \
+  -H 'Content-Type: application/json' \
+  -d '{"frase": "Não disseram-me que haviam pessoas à espera."}'
+
+# todos os sentidos de um verbo, cada um com sua regência
+curl -X POST localhost:8000/api/gramatica/regencia \
+  -H 'Content-Type: application/json' -d '{"verbo": "assistir"}'
+```
+
 Rotas principais: `/api/pesquisar`, `/api/pesquisar/fluxo`, `/api/flashcards`,
 `/api/quiz`, `/api/plano`, `/api/explicar`, `/api/historico`, `/api/baralhos`,
 `/api/revisao`, `/api/estatisticas`, `/api/fontes`, `/api/biblioteca`,
 `/api/matematica/resolver`, `/api/matematica/pista`, `/api/matematica/conferir`,
-`/api/matematica/criar`, `/api/saude`.
+`/api/matematica/criar`, `/api/tutor/sessao`, `/api/tutor/imagem`,
+`/api/gramatica/analisar`, `/api/ingles/avaliar`, `/api/saude`.
 
 ---
 
 ## Testes
 
 ```bash
-python -m pytest        # 258 testes, ~7 segundos
+python -m pytest        # 403 testes, ~12 segundos
 ```
 
 Os testes simulam as respostas de todas as APIs com `httpx.MockTransport`,
@@ -370,7 +501,10 @@ resposta malformada), extração de PDF/EPUB/Markdown, o índice da biblioteca
 intenção, tradução, realimentação de relevância, checagem de fundamentação, o
 pipeline completo, o cache, o algoritmo SM-2, a leitura segura de expressões
 matemáticas (incluindo tentativas de injeção de código), a resolução simbólica,
-o diagnóstico de dificuldade, os geradores de questão e todos os endpoints HTTP.
+o diagnóstico de dificuldade, os geradores de questão, os motores de crase,
+regência, colocação e concordância, a avaliação de inglês, a escada de ajuda
+(incluindo a garantia de que os degraus 0 a 5 não vazam a resposta) e todos os
+endpoints HTTP.
 
 ---
 
@@ -405,5 +539,13 @@ clique num flashcard para virar · o botão no rodapé alterna tema claro e escu
   demonstração, o que vale é o argumento escrito.
 - O gerador de questões cobre seis assuntos em modo paramétrico. Fora deles,
   a questão depende do modelo e a conferência é apenas estrutural.
+- Os motores de gramática cobrem as regras cobradas em prova, não a língua
+  inteira. Quando a decisão depende de análise sintática completa — qual termo
+  o verbo rege numa frase longa, por exemplo — o motor devolve a pergunta em
+  vez de arriscar um veredito.
+- O dicionário de regência traz os verbos que caem em prova. Um verbo fora dele
+  não é analisado, e o motor diz isso.
+- A leitura de questão fotografada depende do modelo de visão, então exige
+  chave de API. Sem ela, digite o enunciado.
 - As APIs públicas têm limites de requisição. O cache de 6 horas existe
   justamente para não abusar delas.

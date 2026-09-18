@@ -51,6 +51,14 @@
         Revisão
         <span class="selo-contador" id="selo-devidos" hidden>0</span>
       </button>
+      <button class="nav-item" data-aba="tutor">
+        <svg viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="M6 10.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-5.5"/></svg>
+        Tutor
+      </button>
+      <button class="nav-item" data-aba="gramatica">
+        <svg viewBox="0 0 24 24"><path d="M4 7V5h16v2"/><path d="M9 20h6M12 5v15"/></svg>
+        Gramática
+      </button>
       <button class="nav-item" data-aba="matematica">
         <svg viewBox="0 0 24 24"><path d="M5 5h14M7 12h10M9 19h6"/><path d="M5 5l6 14"/></svg>
         Matemática
@@ -240,6 +248,78 @@
       <div class="cartao" id="cartao-lista-baralhos">
         <h2 class="titulo-secao">Seus baralhos</h2>
         <div class="grade-baralhos" id="grade-baralhos"></div>
+      </div>
+    </section>
+
+    <!-- ------------------------------ TUTOR ------------------------------- -->
+    <section class="aba" id="aba-tutor">
+      <header class="cabecalho compacto">
+        <h1>Modo tutor</h1>
+        <p>Aqui a resposta não vem de graça. A ajuda sobe um degrau de cada vez,
+           e recua quando você está quase lá. Mostre sua tentativa e o tutor
+           aponta o <em>primeiro</em> erro, não todos.</p>
+      </header>
+
+      <div class="cartao">
+        <label class="campo">
+          <span>Questão</span>
+          <textarea id="tut-enunciado" rows="4" maxlength="6000"
+            placeholder="Cole a questão aqui, de matemática, português ou inglês."></textarea>
+        </label>
+
+        <div class="area-envio compacta" id="tut-area-imagem">
+          <input type="file" id="tut-imagem" hidden accept="image/png,image/jpeg,image/webp">
+          <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="m21 15-5-5L5 19"/></svg>
+          <b>Ou envie a foto da questão</b>
+          <small>o tutor transcreve e pede sua confirmação antes de resolver</small>
+        </div>
+
+        <div class="barra-acoes mat-acoes">
+          <button class="botao-primario" id="tut-comecar">
+            Começar a estudar
+            <svg viewBox="0 0 24 24"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+          </button>
+          <button class="botao-secundario" id="tut-padroes">Meus padrões de erro</button>
+        </div>
+      </div>
+
+      <div class="escada" id="tut-escada" hidden></div>
+      <div id="tut-saida"></div>
+    </section>
+
+    <!-- ---------------------------- GRAMÁTICA ----------------------------- -->
+    <section class="aba" id="aba-gramatica">
+      <header class="cabecalho compacto">
+        <h1>Gramática verificada</h1>
+        <p>Crase, regência, colocação pronominal e concordância analisadas por
+           regras codificadas, não por opinião. Cada veredito vem com a regra
+           que o sustenta e o teste que você pode aplicar sozinho.</p>
+      </header>
+
+      <div class="cartao">
+        <label class="campo">
+          <span>Frase</span>
+          <textarea id="gram-frase" rows="2" maxlength="2000"
+            placeholder="Ex.: Não disseram-me que haviam pessoas à espera."></textarea>
+        </label>
+        <div class="barra-acoes" style="margin-bottom:0">
+          <button class="botao-primario" id="gram-analisar">Analisar</button>
+          <button class="botao-secundario" id="gram-verbos">Verbos catalogados</button>
+        </div>
+      </div>
+
+      <div id="gram-saida"></div>
+
+      <div class="cartao">
+        <h2 class="titulo-secao">Regência de um verbo</h2>
+        <p class="nota-secao">O verbo sozinho não decide nada: cada sentido tem
+           a sua regência. Consulte antes de responder.</p>
+        <div class="barra-acoes" style="margin-bottom:0">
+          <input id="gram-verbo" class="campo-inline" type="text" maxlength="40"
+                 placeholder="assistir, visar, implicar…">
+          <button class="botao-primario" id="gram-consultar">Consultar</button>
+        </div>
+        <div id="gram-regencia"></div>
       </div>
     </section>
 

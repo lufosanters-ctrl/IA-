@@ -331,3 +331,122 @@ def test_enunciado_malicioso_nao_executa_codigo(cliente):
     })
     assert r.status_code == 200
     assert r.json()["analise"]["equacoes"] == []
+
+
+# --------------------------------------------------------------------------
+# Tutoria, gramática e inglês
+# --------------------------------------------------------------------------
+
+def test_escada_de_ajuda_exposta(cliente):
+    dados = cliente.get("/api/tutor/escada").json()
+    assert len(dados["degraus"]) == 7
+    assert sum(1 for d in dados["degraus"] if d["revela_resposta"]) == 1
+    assert dados["tipos_de_erro"]
+
+
+def test_sessao_de_tutoria_comeca_no_degrau_zero(cliente):
+    dados = cliente.post("/api/tutor/sessao", json={
+        "enunciado": "Vou a praia amanhã. A crase está correta?"
+    }).json()
+    assert dados["sessao"]["materia"] == "portugues"
+    assert dados["ajuda"]["nivel"] == 0
+    assert dados["ajuda"]["revela_resposta"] is False
+    assert dados["ajuda"]["texto"]
+
+
+def test_pedir_ajuda_sobe_um_degrau(cliente):
+    sessao = cliente.post("/api/tutor/sessao", json={
+        "enunciado": "Resolva a equação x^2 - 5x + 6 = 0."
+    }).json()["sessao"]
+    subida = cliente.post(f"/api/tutor/sessao/{sessao['id']}/ajuda",
+                          json={"pedido": ""}).json()
+    assert subida["nivel"] == 1
+    assert subida["ajuda"]["revela_resposta"] is False
+
+
+def test_pedido_de_autonomia_nunca_revela(cliente):
+    sessao = cliente.post("/api/tutor/sessao", json={
+        "enunciado": "Resolva a equação x^2 - 5x + 6 = 0."
+    }).json()["sessao"]
+    for _ in range(8):
+        resposta = cliente.post(f"/api/tutor/sessao/{sessao['id']}/ajuda",
+                                json={"pedido": "não me dê a resposta"}).json()
+        assert resposta["ajuda"]["revela_resposta"] is False
+
+
+def test_pedido_explicito_libera_a_resolucao(cliente):
+    sessao = cliente.post("/api/tutor/sessao", json={
+        "enunciado": "Resolva a equação x^2 - 5x + 6 = 0."
+    }).json()["sessao"]
+    resposta = cliente.post(f"/api/tutor/sessao/{sessao['id']}/ajuda",
+                            json={"pedido": "mostre a resolução completa"}).json()
+    assert resposta["nivel"] == 6
+    assert resposta["ajuda"]["revela_resposta"] is True
+
+
+def test_tentativa_recebe_diagnostico_e_fica_registrada(cliente):
+    sessao = cliente.post("/api/tutor/sessao", json={
+        "enunciado": "A crase está correta na frase a seguir?",
+        "materia": "portugues",
+    }).json()["sessao"]
+    resposta = cliente.post(f"/api/tutor/sessao/{sessao['id']}/tentativa",
+                            json={"texto": "Entreguei o livro à ela."}).json()
+    assert resposta["diagnostico"]["veredito"] == "incorreto"
+
+    recarregada = cliente.get(f"/api/tutor/sessao/{sessao['id']}").json()
+    assert len(recarregada["tentativas"]) == 1
+
+
+def test_sessao_inexistente_devolve_404(cliente):
+    assert cliente.get("/api/tutor/sessao/999999").status_code == 404
+    assert cliente.post("/api/tutor/sessao/999999/ajuda", json={}).status_code == 404
+    assert cliente.post("/api/tutor/sessao/999999/tentativa",
+                        json={"texto": "x"}).status_code == 404
+
+
+def test_padroes_de_erro(cliente):
+    assert cliente.get("/api/tutor/padroes").status_code == 200
+
+
+def test_imagem_invalida_e_recusada(cliente):
+    resposta = cliente.post("/api/tutor/imagem",
+                            files={"arquivo": ("foto.png", b"nao e imagem", "image/png")})
+    assert resposta.status_code == 422
+
+
+def test_analise_gramatical(cliente):
+    dados = cliente.post("/api/gramatica/analisar", json={
+        "frase": "Não disseram-me que haviam pessoas na sala."
+    }).json()
+    assert dados["tem_erro"] is True
+    assert len(dados["topicos_envolvidos"]) >= 2
+
+
+def test_consulta_de_regencia(cliente):
+    dados = cliente.post("/api/gramatica/regencia", json={"verbo": "assistir"}).json()
+    assert dados["muda_com_o_sentido"] is True
+    assert any(s["exige_a"] for s in dados["sentidos"])
+
+    assert cliente.post("/api/gramatica/regencia",
+                        json={"verbo": "inexistir"}).status_code == 404
+
+
+def test_lista_de_verbos_catalogados(cliente):
+    dados = cliente.get("/api/gramatica/verbos").json()
+    assert "assistir" in dados["verbos"]
+    assert "inerente" in dados["nomes"]
+
+
+def test_avaliacao_de_ingles(cliente):
+    dados = cliente.post("/api/ingles/avaliar", json={
+        "texto": "People is waiting since three years."
+    }).json()
+    assert len(dados["dimensoes"]) == 5
+    assert dados["avaliacoes"]
+
+
+def test_contrastes_de_ingles(cliente):
+    todos = cliente.get("/api/ingles/contrastes").json()
+    assert todos
+    ingleses = cliente.get("/api/ingles/contrastes?lingua=ingles").json()
+    assert all(c["lingua"] == "ingles" for c in ingleses)

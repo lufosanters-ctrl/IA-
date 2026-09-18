@@ -846,3 +846,132 @@ code, pre, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
   .mat-acoes .segmentado { margin-left: 0; width: 100%; justify-content: space-between; }
   .mat-acoes .botao-primario, .mat-acoes .botao-secundario { flex: 1; }
 }
+
+/* ==========================================================================
+   Modo tutor e gramática
+   ========================================================================== */
+
+.area-envio.compacta { padding: 20px 16px; margin: 14px 0 0; }
+.area-envio.compacta svg { width: 24px; height: 24px; }
+.area-envio.compacta b { font-size: 14.5px; }
+
+.campo-inline {
+  flex: 1; min-width: 200px; padding: 10px 14px;
+  border: 1px solid var(--borda); border-radius: 12px;
+  background: color-mix(in srgb, var(--fundo) 55%, transparent);
+  color: var(--texto); font: inherit; font-size: 14.5px;
+}
+.campo-inline:focus { outline: none; border-color: var(--jade-400); }
+
+/* ------------------------------- escada -------------------------------- */
+.escada {
+  display: flex; align-items: flex-end; gap: 4px; margin: 18px 0 0;
+  padding: 16px 18px; border: 1px solid var(--borda); border-radius: var(--raio);
+  background: var(--superficie); backdrop-filter: blur(10px); overflow-x: auto;
+}
+.escada-degrau {
+  flex: 1; min-width: 74px; display: flex; flex-direction: column;
+  align-items: center; gap: 6px; text-align: center;
+}
+.escada-degrau .barra {
+  width: 100%; border-radius: 6px 6px 0 0; background: var(--borda);
+  transition: background var(--transicao), height var(--transicao);
+}
+.escada-degrau:nth-child(1) .barra { height: 14px; }
+.escada-degrau:nth-child(2) .barra { height: 22px; }
+.escada-degrau:nth-child(3) .barra { height: 30px; }
+.escada-degrau:nth-child(4) .barra { height: 38px; }
+.escada-degrau:nth-child(5) .barra { height: 46px; }
+.escada-degrau:nth-child(6) .barra { height: 54px; }
+.escada-degrau:nth-child(7) .barra { height: 62px; }
+.escada-degrau.passado .barra { background: color-mix(in srgb, var(--jade-400) 45%, transparent); }
+.escada-degrau.atual .barra { background: var(--jade-400); box-shadow: 0 0 14px -2px var(--jade-400); }
+.escada-degrau.revela .barra { background: var(--rosa); }
+.escada-degrau.atual.revela .barra { background: var(--rosa); box-shadow: 0 0 14px -2px var(--rosa); }
+.escada-degrau small { font-size: 10.5px; color: var(--texto-3); line-height: 1.25; }
+.escada-degrau.atual small { color: var(--jade-300); font-weight: 600; }
+
+/* ------------------------------- ajuda --------------------------------- */
+.bloco-ajuda {
+  margin-top: 16px; padding: 18px 20px; border-radius: var(--raio);
+  border: 1px solid color-mix(in srgb, var(--jade-400) 26%, transparent);
+  background: color-mix(in srgb, var(--jade-500) 7%, transparent);
+  animation: surgir .3s ease;
+}
+.bloco-ajuda.revela { border-color: color-mix(in srgb, var(--rosa) 30%, transparent);
+                      background: color-mix(in srgb, var(--rosa) 6%, transparent); }
+.ajuda-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.ajuda-nivel { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--jade-300); }
+.bloco-ajuda.revela .ajuda-nivel { color: var(--rosa); }
+.bloco-ajuda .markdown { font-size: 15px; }
+
+.acoes-tutor { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+
+.caixa-tentativa { margin-top: 14px; }
+.caixa-tentativa textarea { min-height: 80px; }
+
+/* --------------------------- diagnóstico ------------------------------- */
+.bloco-diagnostico {
+  margin-top: 16px; padding: 18px 20px; border-radius: var(--raio);
+  border: 1px solid var(--borda); background: var(--superficie-solida);
+  animation: surgir .3s ease;
+}
+.bloco-diagnostico.correto { border-color: color-mix(in srgb, var(--jade-400) 34%, transparent); }
+.tira-diagnostico { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.tira-diagnostico .pilula.erro { background: color-mix(in srgb, var(--rosa) 15%, transparent); color: var(--rosa); border-color: color-mix(in srgb, var(--rosa) 30%, transparent); }
+
+.generalizacao {
+  margin-top: 14px; padding: 12px 16px; border-radius: var(--raio-sm);
+  border-left: 3px solid var(--violeta);
+  background: color-mix(in srgb, var(--violeta) 8%, transparent);
+  font-size: 13.8px; color: var(--texto-2);
+}
+.generalizacao b { color: var(--violeta); display: block; margin-bottom: 4px;
+                   font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }
+
+/* -------------------------- padrões de erro ---------------------------- */
+.padrao-erro {
+  display: flex; gap: 12px; padding: 13px 15px; margin-bottom: 8px;
+  border: 1px solid var(--borda); border-radius: var(--raio);
+  background: var(--superficie-solida);
+}
+.padrao-erro .contador {
+  flex: none; width: 34px; height: 34px; display: grid; place-items: center;
+  border-radius: 10px; background: color-mix(in srgb, var(--ambar) 16%, transparent);
+  color: var(--ambar); font-weight: 700; font-size: 14px;
+}
+.padrao-erro b { display: block; font-size: 14px; margin-bottom: 2px; }
+.padrao-erro small { color: var(--texto-3); font-size: 12.5px; }
+.padrao-erro .estrategia { display: block; margin-top: 6px; font-size: 13px; color: var(--texto-2); }
+
+/* ---------------------------- gramática -------------------------------- */
+.achado-gramatical {
+  padding: 13px 16px; margin-bottom: 8px; border-radius: var(--raio-sm);
+  border: 1px solid var(--borda); border-left-width: 3px;
+  background: var(--superficie-solida);
+}
+.achado-gramatical.erro { border-left-color: var(--rosa); background: color-mix(in srgb, var(--rosa) 7%, transparent); }
+.achado-gramatical.correto { border-left-color: var(--jade-400); background: color-mix(in srgb, var(--jade-500) 6%, transparent); }
+.achado-gramatical.depende { border-left-color: var(--ambar); background: color-mix(in srgb, var(--ambar) 6%, transparent); }
+.achado-gramatical.atencao { border-left-color: var(--ambar); }
+.achado-topo { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.marca-topico { padding: 1px 9px; border-radius: 99px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; background: var(--superficie-alta); color: var(--texto-3); border: 1px solid var(--borda); }
+.achado-gramatical b { font-size: 14px; }
+.achado-gramatical p { margin: 0 0 6px; font-size: 13.6px; color: var(--texto-2); line-height: 1.6; }
+.achado-gramatical .teste { font-size: 13px; color: var(--texto-3); padding: 8px 12px; border-radius: var(--raio-sm); background: color-mix(in srgb, var(--azul) 8%, transparent); }
+.achado-gramatical .teste b { color: var(--azul); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+
+.sentido-verbo {
+  padding: 12px 15px; margin-bottom: 7px; border-radius: var(--raio-sm);
+  border: 1px solid var(--borda); background: var(--superficie-solida);
+}
+.sentido-verbo .cabeca { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 5px; }
+.sentido-verbo .sentido { font-weight: 600; font-size: 14px; }
+.sentido-verbo .exemplo { font-size: 13.4px; color: var(--texto-2); font-style: italic; }
+.sentido-verbo .observacao { margin-top: 6px; font-size: 12.6px; color: var(--texto-3); }
+
+@media (max-width: 860px) {
+  .escada { padding: 12px; }
+  .escada-degrau { min-width: 52px; }
+  .escada-degrau small { font-size: 9.5px; }
+}

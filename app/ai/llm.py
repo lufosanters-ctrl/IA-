@@ -73,6 +73,31 @@ class MotorIA:
             bloco.text for bloco in resposta.content if getattr(bloco, "type", "") == "text"
         ).strip()
 
+    async def responder_multimodal(
+        self,
+        sistema: str,
+        conteudo: list[dict[str, Any]],
+        max_tokens: int | None = None,
+    ) -> str:
+        """Pergunta com imagem junto (leitura de questao fotografada)."""
+        if not self.disponivel:
+            raise ErroModelo("nenhuma chave de API configurada")
+        cliente = self._obter_cliente()
+        try:
+            resposta = await cliente.messages.create(
+                model=self._cfg.modelo,
+                max_tokens=max_tokens or self._cfg.modelo_max_tokens,
+                temperature=0.0,   # transcricao pede determinismo, nao criatividade
+                system=sistema,
+                messages=[{"role": "user", "content": conteudo}],
+            )
+        except Exception as exc:
+            raise ErroModelo(str(exc)) from exc
+        return "".join(
+            bloco.text for bloco in resposta.content
+            if getattr(bloco, "type", "") == "text"
+        ).strip()
+
     async def transmitir(
         self,
         sistema: str,

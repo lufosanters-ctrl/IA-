@@ -72,10 +72,23 @@ def _agora() -> str:
 # ser reiniciado.
 _esquema_pronto = False
 
+# Outros modulos registram aqui o seu proprio esquema. Assim tudo nasce e
+# renasce junto com o banco principal, em vez de cada modulo manter a sua
+# propria marca de "ja criei" — marca que fica errada quando o arquivo muda.
+ESQUEMAS_EXTRA: list[str] = []
+
+
+def registrar_esquema(sql: str) -> None:
+    """Registra um esquema adicional a ser criado junto com o principal."""
+    if sql not in ESQUEMAS_EXTRA:
+        ESQUEMAS_EXTRA.append(sql)
+
 
 def _preparar(conexao: sqlite3.Connection) -> None:
     """Garante tabelas, indices e o baralho padrao."""
     conexao.executescript(ESQUEMA)
+    for extra in ESQUEMAS_EXTRA:
+        conexao.executescript(extra)
     if not conexao.execute("SELECT 1 FROM baralhos LIMIT 1").fetchone():
         conexao.execute(
             "INSERT INTO baralhos (nome, descricao, criado_em) VALUES (?, ?, ?)",

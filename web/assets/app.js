@@ -25,6 +25,8 @@
     nivelPista: 0,
     topicosMat: [],
     topicoMat: "",
+    sessaoTutor: null,
+    escadaDegraus: [],
   };
 
   const NOMES_FONTE = {};
@@ -63,6 +65,7 @@
     if (nome === "revisao") carregarBaralhos();
     if (nome === "biblioteca") carregarBiblioteca();
     if (nome === "matematica") carregarTopicosMat();
+    if (nome === "tutor") carregarEscada();
   }
 
   function ligarSegmentado(seletor, aoEscolher) {
@@ -167,6 +170,8 @@
 
     ligarEnvioDeLivros();
     ligarMatematica();
+    ligarTutor();
+    ligarGramatica();
     $("#btn-novo-baralho").addEventListener("click", criarBaralho);
     $("#btn-iniciar-revisao").addEventListener("click", iniciarRevisao);
 
@@ -1580,6 +1585,371 @@
     });
 
     renderizarFormulas($("#mat-questao"));
+  }
+
+
+  /* ====================================================================
+     Modo tutor: escada de ajuda
+     ==================================================================== */
+
+  function ligarTutor() {
+    $("#tut-comecar").addEventListener("click", comecarTutoria);
+    $("#tut-padroes").addEventListener("click", mostrarPadroes);
+
+    const area = $("#tut-area-imagem");
+    const entrada = $("#tut-imagem");
+    area.addEventListener("click", () => entrada.click());
+    entrada.addEventListener("change", () => {
+      if (entrada.files.length) enviarFoto(entrada.files[0]);
+      entrada.value = "";
+    });
+    ["dragenter", "dragover"].forEach((e) =>
+      area.addEventListener(e, (ev) => { ev.preventDefault(); area.classList.add("sobre"); }));
+    ["dragleave", "drop"].forEach((e) =>
+      area.addEventListener(e, (ev) => { ev.preventDefault(); area.classList.remove("sobre"); }));
+    area.addEventListener("drop", (ev) => {
+      const arquivos = ev.dataTransfer && ev.dataTransfer.files;
+      if (arquivos && arquivos.length) enviarFoto(arquivos[0]);
+    });
+  }
+
+  async function carregarEscada() {
+    if (estado.escadaDegraus.length) return;
+    try {
+      const dados = await window.API.tutEscada();
+      estado.escadaDegraus = dados.degraus || [];
+    } catch (erro) { avisar(erro.message, "erro"); }
+  }
+
+  function desenharEscada(nivelAtual) {
+    const caixa = $("#tut-escada");
+    if (!estado.escadaDegraus.length) { caixa.hidden = true; return; }
+    caixa.innerHTML = estado.escadaDegraus.map((d) => {
+      const classes = [
+        "escada-degrau",
+        d.nivel < nivelAtual ? "passado" : "",
+        d.nivel === nivelAtual ? "atual" : "",
+        d.revela_resposta ? "revela" : "",
+      ].filter(Boolean).join(" ");
+      return `<div class="${classes}" title="${escapar(d.objetivo)}">
+                <span class="barra"></span>
+                <small>${escapar(d.nome)}</small>
+              </div>`;
+    }).join("");
+    caixa.hidden = false;
+  }
+
+  async function comecarTutoria() {
+    const enunciado = $("#tut-enunciado").value.trim();
+    if (enunciado.length < 3) {
+      avisar("Cole a questão primeiro.", "erro");
+      return;
+    }
+    const botao = $("#tut-comecar");
+    botao.disabled = true;
+    $("#tut-saida").innerHTML = '<div class="cartao" style="margin-top:16px">'
+      + '<div class="esqueleto" style="height:14px;width:40%"></div>'
+      + '<div class="esqueleto" style="height:12px;margin-top:12px"></div></div>';
+    try {
+      await carregarEscada();
+      const dados = await window.API.tutAbrirSessao({ enunciado });
+      estado.sessaoTutor = dados.sessao;
+      desenharEscada(dados.ajuda.nivel);
+      desenharAjuda(dados.ajuda);
+    } catch (erro) {
+      $("#tut-saida").innerHTML = "";
+      avisar(erro.message, "erro");
+    } finally {
+      botao.disabled = false;
+    }
+  }
+
+  function desenharAjuda(ajuda) {
+    const revela = ajuda.revela_resposta;
+    $("#tut-saida").innerHTML = `
+      <div class="bloco-ajuda ${revela ? "revela" : ""}">
+        <div class="ajuda-topo">
+          <span class="ajuda-nivel">
+            degrau ${ajuda.nivel} · ${escapar(ajuda.nome_do_degrau)}
+          </span>
+          <div class="pilulas">
+            <span class="pilula violeta">${escapar(ajuda.materia)}</span>
+            <span class="pilula ${ajuda.modo === "neural" ? "jade" : "ambar"}">
+              ${ajuda.modo === "neural" ? "tutor" : "verificadores"}</span>
+          </div>
+        </div>
+        <article class="markdown">${markdownComFormulas(ajuda.texto)}</article>
+        <div class="acoes-tutor">
+          ${ajuda.pode_subir
+            ? '<button class="botao-secundario" id="tut-mais">Ainda travei — mais uma pista</button>'
+            : ""}
+          <button class="botao-secundario" id="tut-resolver">Ver a resolução completa</button>
+        </div>
+      </div>
+
+      <div class="cartao caixa-tentativa">
+        <label class="campo">
+          <span>Minha tentativa</span>
+          <textarea id="tut-tentativa" rows="3" maxlength="6000"
+            placeholder="Escreva o que você fez. O tutor aponta só o primeiro erro."></textarea>
+        </label>
+        <div class="barra-acoes" style="margin-bottom:0">
+          <button class="botao-primario" id="tut-enviar-tentativa">Enviar tentativa</button>
+        </div>
+      </div>`;
+
+    renderizarFormulas($("#tut-saida"));
+    const mais = $("#tut-mais");
+    if (mais) mais.addEventListener("click", () => pedirMaisAjuda(""));
+    $("#tut-resolver").addEventListener("click", () =>
+      pedirMaisAjuda("mostre a resolução completa"));
+    $("#tut-enviar-tentativa").addEventListener("click", enviarTentativa);
+  }
+
+  async function pedirMaisAjuda(pedido) {
+    if (!estado.sessaoTutor) return;
+    try {
+      const dados = await window.API.tutAjuda(estado.sessaoTutor.id, pedido);
+      desenharEscada(dados.nivel);
+      desenharAjuda(dados.ajuda);
+    } catch (erro) { avisar(erro.message, "erro"); }
+  }
+
+  async function enviarTentativa() {
+    if (!estado.sessaoTutor) return;
+    const campo = $("#tut-tentativa");
+    const texto = campo.value.trim();
+    if (!texto) { avisar("Escreva sua tentativa primeiro.", "erro"); return; }
+
+    const botao = $("#tut-enviar-tentativa");
+    botao.disabled = true;
+    try {
+      const dados = await window.API.tutTentativa(estado.sessaoTutor.id, texto);
+      desenharEscada(dados.nivel);
+      desenharDiagnostico(dados, texto);
+    } catch (erro) {
+      avisar(erro.message, "erro");
+    } finally {
+      botao.disabled = false;
+    }
+  }
+
+  function desenharDiagnostico(dados, tentativa) {
+    const d = dados.diagnostico;
+    const correto = d.veredito === "correto";
+    const rotuloVeredito = {
+      correto: "acertou", parcial: "parcialmente certo",
+      incorreto: "há um erro", indeterminado: "não consegui decidir",
+    }[d.veredito] || d.veredito;
+
+    const bloco = document.createElement("div");
+    bloco.className = `bloco-diagnostico ${correto ? "correto" : ""}`;
+    bloco.innerHTML = `
+      <div class="tira-diagnostico">
+        <span class="pilula ${correto ? "jade" : "erro"}">${escapar(rotuloVeredito)}</span>
+        ${d.tipo_erro ? `<span class="pilula">${escapar(d.tipo_erro)}</span>` : ""}
+        ${d.quase_la ? '<span class="pilula jade">quase lá</span>' : ""}
+        <span class="pilula ${d.modo === "neural" ? "" : "ambar"}">
+          ${d.modo === "neural" ? "análise do tutor" : "verificadores"}</span>
+      </div>
+      <article class="markdown">${markdownComFormulas(d.resposta)}</article>
+      ${d.pergunta_que_faltou ? `
+        <div class="generalizacao">
+          <b>a pergunta que faltou</b>${escapar(d.pergunta_que_faltou)}
+        </div>` : ""}
+      ${dados.generalizacao ? `
+        <div class="generalizacao">
+          <b>regra para levar para outras questões</b>
+          ${escapar(dados.generalizacao)}
+        </div>` : ""}`;
+
+    $("#tut-saida").appendChild(bloco);
+    renderizarFormulas(bloco);
+    bloco.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  async function enviarFoto(arquivo) {
+    $("#tut-saida").innerHTML = '<div class="cartao" style="margin-top:16px">'
+      + '<div class="esqueleto" style="height:14px;width:55%"></div>'
+      + '<div class="esqueleto" style="height:12px;margin-top:12px"></div></div>';
+    try {
+      const dados = await window.API.tutImagem(arquivo);
+      const leitura = dados.leitura;
+      $("#tut-saida").innerHTML = `
+        <div class="bloco-ajuda">
+          <div class="ajuda-topo">
+            <span class="ajuda-nivel">leitura da imagem</span>
+            <span class="pilula ${leitura.confiavel ? "jade" : "ambar"}">
+              ${leitura.confiavel ? "transcrição completa" : "há trechos ilegíveis"}</span>
+          </div>
+          <article class="markdown">${markdownComFormulas(dados.confirmacao)}</article>
+          <div class="acoes-tutor">
+            <button class="botao-primario" id="tut-confirmar-leitura">
+              Está certo — estudar esta questão</button>
+          </div>
+        </div>`;
+      renderizarFormulas($("#tut-saida"));
+      $("#tut-confirmar-leitura").addEventListener("click", () => {
+        const primeira = (leitura.questoes || [])[0];
+        if (!primeira) return;
+        const alternativas = (primeira.alternativas || [])
+          .map((a) => `${a.letra}) ${a.texto}`).join("\n");
+        $("#tut-enunciado").value =
+          primeira.enunciado + (alternativas ? `\n\n${alternativas}` : "");
+        comecarTutoria();
+      });
+    } catch (erro) {
+      $("#tut-saida").innerHTML = "";
+      avisar(erro.message, "erro");
+    }
+  }
+
+  async function mostrarPadroes() {
+    try {
+      const dados = await window.API.tutPadroes();
+      const recorrentes = dados.recorrentes || [];
+      const dominio = dados.dominio || [];
+      $("#tut-saida").innerHTML = `
+        <div class="cartao" style="margin-top:16px">
+          <h2 class="titulo-secao">Seus padrões de erro</h2>
+          ${recorrentes.length ? recorrentes.map((p) => `
+            <div class="padrao-erro">
+              <span class="contador">${p.ocorrencias}</span>
+              <div>
+                <b>${escapar(p.tipo)}</b>
+                <small>${escapar(p.descricao)}</small>
+                <span class="estrategia">${escapar(p.estrategia)}</span>
+              </div>
+            </div>`).join("")
+            : '<p style="color:var(--texto-3);font-size:14px;margin:0">'
+              + "Ainda não há erros suficientes para um padrão. Estude algumas "
+              + "questões e volte aqui.</p>"}
+
+          ${dominio.length ? `
+            <h2 class="titulo-secao" style="margin-top:20px">Domínio por assunto</h2>
+            ${dominio.map((d) => `
+              <div class="medidor-linha">
+                <span class="rotulo">${escapar(d.topico)}</span>
+                <span class="medidor-barra">
+                  <i class="${faixa(d.taxa / 100)}" style="width:${d.taxa}%"></i>
+                </span>
+                <span class="valor">${d.taxa}%</span>
+              </div>`).join("")}` : ""}
+        </div>`;
+    } catch (erro) { avisar(erro.message, "erro"); }
+  }
+
+  /* ====================================================================
+     Gramática
+     ==================================================================== */
+
+  function ligarGramatica() {
+    $("#gram-analisar").addEventListener("click", analisarGramatica);
+    $("#gram-consultar").addEventListener("click", consultarRegencia);
+    $("#gram-verbos").addEventListener("click", listarVerbos);
+    $("#gram-verbo").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") consultarRegencia();
+    });
+  }
+
+  const ROTULO_VEREDITO = {
+    erro: "erro", correto: "correto", depende: "depende do contexto",
+    atencao: "atenção",
+  };
+
+  async function analisarGramatica() {
+    const frase = $("#gram-frase").value.trim();
+    if (frase.length < 2) { avisar("Escreva a frase primeiro.", "erro"); return; }
+    try {
+      const dados = await window.API.gramAnalisar(frase);
+      const achados = dados.achados || [];
+      $("#gram-saida").innerHTML = `
+        <div class="cartao" style="margin-top:16px">
+          <div class="pilulas" style="margin-bottom:14px">
+            <span class="pilula ${dados.tem_erro ? "ambar" : "jade"}">
+              ${dados.tem_erro ? "há erro na frase" : "nenhum erro detectado"}</span>
+            ${(dados.topicos_envolvidos || []).map((t) =>
+              `<span class="pilula violeta">${escapar(t)}</span>`).join("")}
+          </div>
+          ${achados.length ? achados.map((a) => `
+            <div class="achado-gramatical ${escapar(a.veredito)}">
+              <div class="achado-topo">
+                <span class="marca-topico">${escapar(a.topico)}</span>
+                <b>${escapar(a.regra)}</b>
+                <span class="pilula">${escapar(ROTULO_VEREDITO[a.veredito] || a.veredito)}</span>
+              </div>
+              <p>${escapar(a.explicacao)}</p>
+              ${a.teste ? `<div class="teste"><b>teste</b><br>${escapar(a.teste)}</div>` : ""}
+              ${a.pergunta_guia ? `<div class="teste" style="margin-top:6px">
+                <b>pergunte-se</b><br>${escapar(a.pergunta_guia)}</div>` : ""}
+            </div>`).join("")
+            : '<p style="color:var(--texto-3);font-size:14px;margin:0">'
+              + "Nenhuma das armadilhas clássicas apareceu nesta frase.</p>"}
+        </div>`;
+    } catch (erro) { avisar(erro.message, "erro"); }
+  }
+
+  async function consultarRegencia() {
+    const verbo = $("#gram-verbo").value.trim();
+    if (!verbo) return;
+    try {
+      const dados = await window.API.gramRegencia(verbo);
+      $("#gram-regencia").innerHTML = `
+        <div style="margin-top:14px">
+          <div class="pilulas" style="margin-bottom:10px">
+            <span class="pilula violeta">${escapar(dados.verbo)}</span>
+            <span class="pilula ${dados.muda_com_o_sentido ? "ambar" : "jade"}">
+              ${dados.muda_com_o_sentido
+                ? "muda de regência conforme o sentido"
+                : "regência única"}</span>
+          </div>
+          ${dados.sentidos.map((s) => `
+            <div class="sentido-verbo">
+              <div class="cabeca">
+                <span class="sentido">${escapar(s.sentido)}</span>
+                <span class="pilula">${escapar(s.transitividade)}</span>
+                ${s.preposicoes.length
+                  ? `<span class="pilula ${s.exige_a ? "jade" : ""}">
+                       ${escapar(s.preposicoes.join(" / "))}</span>`
+                  : ""}
+              </div>
+              <div class="exemplo">${escapar(s.exemplo)}</div>
+              ${s.observacao ? `<div class="observacao">${escapar(s.observacao)}</div>` : ""}
+            </div>`).join("")}
+        </div>`;
+    } catch (erro) {
+      $("#gram-regencia").innerHTML =
+        `<p style="margin-top:12px;color:var(--ambar);font-size:13.5px">${escapar(erro.message)}</p>`;
+    }
+  }
+
+  async function listarVerbos() {
+    try {
+      const dados = await window.API.gramVerbos();
+      $("#gram-saida").innerHTML = `
+        <div class="cartao" style="margin-top:16px">
+          <h2 class="titulo-secao">
+            Verbos catalogados <span class="contagem">${dados.verbos.length}</span>
+          </h2>
+          <div class="fichas">
+            ${dados.verbos.map((v) =>
+              `<button class="ficha" data-verbo="${escapar(v)}">${escapar(v)}</button>`).join("")}
+          </div>
+          <h2 class="titulo-secao" style="margin-top:20px">
+            Regência nominal <span class="contagem">${dados.nomes.length}</span>
+          </h2>
+          <div class="fichas">
+            ${dados.nomes.map((n) => `<span class="ficha">${escapar(n)}</span>`).join("")}
+          </div>
+        </div>`;
+      $$("#gram-saida .ficha[data-verbo]").forEach((ficha) => {
+        ficha.addEventListener("click", () => {
+          $("#gram-verbo").value = ficha.dataset.verbo;
+          consultarRegencia();
+          $("#gram-regencia").scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      });
+    } catch (erro) { avisar(erro.message, "erro"); }
   }
 
   document.addEventListener("DOMContentLoaded", iniciar);

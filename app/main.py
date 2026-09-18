@@ -18,8 +18,12 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__, banco, biblioteca
-from . import matematica
+from . import gramatica, ingles, matematica, tutor
 from .ai import estudo, pesquisa
+from .ingles.dimensoes import DIMENSOES
+from .tutor import DEGRAUS, tutoria, visao
+from .tutor.escada import detectar_pedido, proximo_degrau
+from .tutor.sessao import TIPOS_DE_ERRO
 from .catalogo import baixar_catalogo, listar_catalogo
 from .matematica.classificacao import NIVEIS, TOPICOS, classificar
 from .matematica.criacao import GERADORES, criar as criar_questao
@@ -31,16 +35,22 @@ from .schemas import (
     PedidoCatalogo,
     PedidoExplicacao,
     PedidoFlashcards,
+    PedidoAjuda,
+    PedidoAnaliseGramatical,
     PedidoConferencia,
     PedidoIndexarPasta,
+    PedidoIngles,
     PedidoMatematica,
     PedidoPista,
     PedidoPesquisa,
     PedidoPlano,
     PedidoQuestao,
     PedidoQuiz,
+    PedidoRegencia,
     PedidoRevisao,
     PedidoSalvarCartoes,
+    PedidoSessaoTutor,
+    PedidoTentativa,
 )
 from .sources.registro import listar_fontes, rotular_area
 
@@ -55,6 +65,7 @@ cfg = obter_config()
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI):
     banco.iniciar_banco()
+    tutor.iniciar_banco_tutor()
     biblioteca.iniciar()
     acervo = biblioteca.estatisticas()
     log.info(
@@ -519,6 +530,190 @@ async def matematica_criar(pedido: PedidoQuestao) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
+# Tutoria: escada de ajuda, diagnóstico e padrões de erro
+# --------------------------------------------------------------------------
+
+@app.get("/api/tutor/escada", tags=["tutoria"])
+async def tutor_escada() -> dict[str, Any]:
+    """Os degraus da escada de ajuda, do mais leve ao mais completo."""
+    return {
+        "degraus": [d.para_dict() for d in DEGRAUS],
+        "tipos_de_erro": TIPOS_DE_ERRO,
+    }
+
+
+@app.post("/api/tutor/sessao", tags=["tutoria"])
+async def tutor_abrir_sessao(pedido: PedidoSessaoTutor) -> dict[str, Any]:
+    """Abre uma sessão de estudo e entrega o primeiro degrau da escada."""
+    contexto = await tutoria.apurar(pedido.enunciado, pedido.materia)
+    sessao = tutor.abrir_sessao(
+        materia=contexto.materia,
+        enunciado=pedido.enunciado,
+        topico=contexto.topico,
+        dificuldade=contexto.dificuldade,
+    )
+    resposta = await tutoria.orientar(
+        pedido.enunciado, sessao.nivel_atual, contexto.materia,
+        pedido.tentativa, contexto,
+    )
+    return {"sessao": sessao.para_dict(), "ajuda": resposta.para_dict()}
+
+
+@app.get("/api/tutor/sessao/{sessao_id}", tags=["tutoria"])
+async def tutor_obter_sessao(sessao_id: int) -> dict[str, Any]:
+    sessao = tutor.obter_sessao(sessao_id)
+    if sessao is None:
+        raise HTTPException(404, "Sessão não encontrada.")
+    return sessao.para_dict()
+
+
+@app.post("/api/tutor/sessao/{sessao_id}/ajuda", tags=["tutoria"])
+async def tutor_mais_ajuda(sessao_id: int, pedido: PedidoAjuda) -> dict[str, Any]:
+    """Sobe um degrau da escada — ou vai direto ao fim, se o estudante pedir."""
+    sessao = tutor.obter_sessao(sessao_id)
+    if sessao is None:
+        raise HTTPException(404, "Sessão não encontrada.")
+
+    intencao = detectar_pedido(pedido.pedido)
+    ultima = sessao.tentativas[-1] if sessao.tentativas else None
+    novo_nivel = proximo_degrau(
+        sessao.nivel_atual,
+        acertou_algo=bool(ultima and ultima.veredito == "parcial"),
+        pediu_resolucao=intencao == "resolucao",
+        pediu_autonomia=intencao == "autonomia",
+    )
+    tutor.subir_degrau(sessao_id, novo_nivel)
+
+    tentativa = ultima.texto if ultima else ""
+    resposta = await tutoria.orientar(
+        sessao.enunciado, novo_nivel, sessao.materia, tentativa
+    )
+    return {"ajuda": resposta.para_dict(), "nivel": novo_nivel, "pedido": intencao}
+
+
+@app.post("/api/tutor/sessao/{sessao_id}/tentativa", tags=["tutoria"])
+async def tutor_tentativa(sessao_id: int, pedido: PedidoTentativa) -> dict[str, Any]:
+    """Diagnostica a tentativa: aponta o PRIMEIRO erro, não todos."""
+    sessao = tutor.obter_sessao(sessao_id)
+    if sessao is None:
+        raise HTTPException(404, "Sessão não encontrada.")
+
+    contexto = await tutoria.apurar(sessao.enunciado, sessao.materia)
+    diagnostico = await tutoria.avaliar_tentativa(
+        sessao.enunciado, pedido.texto, sessao.materia, contexto
+    )
+    tutor.registrar_tentativa(
+        sessao_id, pedido.texto, diagnostico.veredito,
+        diagnostico.primeiro_erro, diagnostico.tipo_erro, sessao.nivel_atual,
+    )
+
+    # Quem está quase lá precisa de MENOS ajuda, não de mais.
+    novo_nivel = proximo_degrau(
+        sessao.nivel_atual,
+        acertou_algo=diagnostico.quase_la or diagnostico.veredito == "parcial",
+    )
+    if diagnostico.veredito != "correto":
+        tutor.subir_degrau(sessao_id, novo_nivel)
+
+    saida: dict[str, Any] = {
+        "diagnostico": diagnostico.para_dict(),
+        "nivel": novo_nivel if diagnostico.veredito != "correto" else sessao.nivel_atual,
+    }
+    if diagnostico.veredito == "correto":
+        saida["generalizacao"] = await tutoria.generalizar(
+            sessao.enunciado, sessao.materia
+        )
+    return saida
+
+
+@app.get("/api/tutor/sessoes", tags=["tutoria"])
+async def tutor_sessoes(limite: int = Query(default=20, ge=1, le=100)) -> list[dict[str, Any]]:
+    return tutor.listar_sessoes(limite)
+
+
+@app.get("/api/tutor/padroes", tags=["tutoria"])
+async def tutor_padroes(minimo: int = Query(default=2, ge=1, le=20)) -> dict[str, Any]:
+    """Erros que se repetem, com a estratégia preventiva de cada um."""
+    return tutor.padroes_de_erro(minimo)
+
+
+@app.post("/api/tutor/imagem", tags=["tutoria"])
+async def tutor_imagem(arquivo: UploadFile = File(...)) -> dict[str, Any]:
+    """Lê uma questão fotografada e devolve a transcrição para confirmação."""
+    conteudo = await arquivo.read()
+    try:
+        leitura = await visao.ler_imagem(conteudo)
+    except visao.ErroLeitura as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {
+        "leitura": leitura.para_dict(),
+        "confirmacao": visao.texto_de_confirmacao(leitura),
+    }
+
+
+# --------------------------------------------------------------------------
+# Gramática da língua portuguesa
+# --------------------------------------------------------------------------
+
+@app.post("/api/gramatica/analisar", tags=["gramática"])
+async def gramatica_analisar(pedido: PedidoAnaliseGramatical) -> dict[str, Any]:
+    """Passa a frase pelos motores de crase, regência, colocação e concordância."""
+    return gramatica.analisar_frase(pedido.frase).para_dict()
+
+
+@app.post("/api/gramatica/regencia", tags=["gramática"])
+async def gramatica_regencia(pedido: PedidoRegencia) -> dict[str, Any]:
+    """Todos os sentidos de um verbo, cada um com a sua regência."""
+    sentidos = gramatica.consultar_verbo(pedido.verbo)
+    if not sentidos:
+        raise HTTPException(
+            404,
+            f"“{pedido.verbo}” não está no dicionário de regências cobradas em prova."
+        )
+    return {
+        "verbo": pedido.verbo.lower(),
+        "sentidos": [s.para_dict() for s in sentidos],
+        "muda_com_o_sentido": len(sentidos) > 1,
+    }
+
+
+@app.get("/api/gramatica/verbos", tags=["gramática"])
+async def gramatica_verbos() -> dict[str, Any]:
+    """Lista os verbos e nomes catalogados."""
+    return {
+        "verbos": sorted(v for v, s in gramatica.REGENCIA_VERBAL.items() if s),
+        "nomes": sorted(gramatica.REGENCIA_NOMINAL),
+    }
+
+
+# --------------------------------------------------------------------------
+# Gramática da língua inglesa
+# --------------------------------------------------------------------------
+
+@app.post("/api/ingles/avaliar", tags=["inglês"])
+async def ingles_avaliar(pedido: PedidoIngles) -> dict[str, Any]:
+    """Avalia a construção nas cinco dimensões e aponta erros de transferência."""
+    return {
+        "dimensoes": [
+            {"chave": c, "nome": n, "pergunta": p} for c, n, p in DIMENSOES
+        ],
+        "avaliacoes": [a.para_dict() for a in ingles.avaliar_estrutura(pedido.texto)],
+        "contrastes": [
+            c.para_dict() for c in ingles.contrastes_relevantes(pedido.texto)
+        ],
+    }
+
+
+@app.get("/api/ingles/contrastes", tags=["inglês"])
+async def ingles_contrastes(lingua: str = Query(default="")) -> list[dict[str, Any]]:
+    """Pares que se confundem, com o critério que decide entre eles."""
+    return [
+        c.para_dict() for c in ingles.CONTRASTES
+        if not lingua or c.lingua == lingua
+    ]
+
+
+# --------------------------------------------------------------------------
 # Interface web
 # --------------------------------------------------------------------------
 
@@ -532,6 +727,8 @@ if cfg.diretorio_web.exists():
     @app.get("/", include_in_schema=False)
     async def raiz() -> FileResponse:
         return FileResponse(cfg.diretorio_web / "index.html")
+
+
 
 
 

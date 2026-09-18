@@ -85,6 +85,38 @@
     registrarRevisao: (cartaoId, nota) => enviar(`/api/revisao/${cartaoId}`, { nota }),
     estatisticas: () => obter("/api/estatisticas"),
 
+    /* --- tutoria --- */
+    tutEscada: () => obter("/api/tutor/escada"),
+    tutAbrirSessao: (corpo) => enviar("/api/tutor/sessao", corpo),
+    tutSessao: (id) => obter(`/api/tutor/sessao/${id}`),
+    tutAjuda: (id, pedido) => enviar(`/api/tutor/sessao/${id}/ajuda`, { pedido: pedido || "" }),
+    tutTentativa: (id, texto) => enviar(`/api/tutor/sessao/${id}/tentativa`, { texto }),
+    tutPadroes: () => obter("/api/tutor/padroes?minimo=1"),
+
+    /** Envia a foto da questão para transcrição. */
+    async tutImagem(arquivo) {
+      const corpo = new FormData();
+      corpo.append("arquivo", arquivo);
+      const resposta = await fetch("/api/tutor/imagem", { method: "POST", body: corpo });
+      if (!resposta.ok) {
+        let detalhe = `Erro ${resposta.status}`;
+        try {
+          const erro = await resposta.json();
+          if (erro && erro.detail) detalhe = String(erro.detail);
+        } catch (_) { /* sem JSON */ }
+        throw new Error(detalhe);
+      }
+      return resposta.json();
+    },
+
+    /* --- gramática e inglês --- */
+    gramAnalisar: (frase) => enviar("/api/gramatica/analisar", { frase }),
+    gramRegencia: (verbo) => enviar("/api/gramatica/regencia", { verbo }),
+    gramVerbos: () => obter("/api/gramatica/verbos"),
+    inglesAvaliar: (texto) => enviar("/api/ingles/avaliar", { texto }),
+    inglesContrastes: (lingua) =>
+      obter("/api/ingles/contrastes" + (lingua ? `?lingua=${lingua}` : "")),
+
     /* --- matemática --- */
     matTopicos: () => obter("/api/matematica/topicos"),
     matDiagnostico: (corpo) => enviar("/api/matematica/diagnostico", corpo),
