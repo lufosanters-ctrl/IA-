@@ -99,6 +99,21 @@ def detectar_materia(enunciado: str) -> str:
 # Contexto deterministico por materia
 # --------------------------------------------------------------------------
 
+def _com_biblioteca(resumo: str, livros: list[dict[str, Any]]) -> str:
+    """Anexa ao resumo o que os livros do estudante dizem sobre o assunto."""
+    if not livros:
+        return resumo
+    linhas = ["", "Na biblioteca do próprio estudante:"]
+    for livro in livros:
+        local = f", {livro['capitulo']}" if livro["capitulo"] else ""
+        pagina = f", p. {livro['pagina']}" if livro["pagina"] else ""
+        linhas.append(f"- {livro['livro']}{local}{pagina}: {livro['trecho'][:200]}")
+    linhas.append(
+        "Cite o livro dele quando couber: ele pode abrir a página e continuar dali."
+    )
+    return resumo + "\n".join(linhas)
+
+
 @dataclass(slots=True)
 class ContextoVerificado:
     """O que os verificadores apuraram, antes de qualquer modelo opinar."""
@@ -122,6 +137,11 @@ async def apurar(enunciado: str, materia: str = "") -> ContextoVerificado:
     materia = materia or detectar_materia(enunciado)
     contexto = ContextoVerificado(materia=materia)
 
+    # O acervo do estudante entra em qualquer matéria.
+    livros = _trechos_da_biblioteca(enunciado)
+    if livros:
+        contexto.dados["biblioteca"] = livros
+
     if materia == "matematica":
         diagnostico = classificar(enunciado)
         analise = await analisar_enunciado(
@@ -129,10 +149,8 @@ async def apurar(enunciado: str, materia: str = "") -> ContextoVerificado:
         )
         contexto.topico = diagnostico.topico
         contexto.dificuldade = diagnostico.dificuldade
-        contexto.dados = {
-            "diagnostico": diagnostico.para_dict(),
-            "analise": analise.para_dict(),
-        }
+        contexto.dados["diagnostico"] = diagnostico.para_dict()
+        contexto.dados["analise"] = analise.para_dict()
         linhas = [
             f"Assunto: {diagnostico.topico_nome} "
             f"(nível {diagnostico.dificuldade} — {diagnostico.dificuldade_nome})."
@@ -146,30 +164,30 @@ async def apurar(enunciado: str, materia: str = "") -> ContextoVerificado:
                             for v, s in analise.solucoes.items())
                 + ". NÃO revele estes valores nos degraus 0 a 5."
             )
-        contexto.resumo = "\n".join(linhas)
+        contexto.resumo = _com_biblioteca("\n".join(linhas), livros)
         return contexto
 
     if materia == "portugues":
         analise = analisar_frase(enunciado)
         contexto.topico = (analise.topicos_envolvidos or ["geral"])[0]
-        contexto.dados = {"gramatica": analise.para_dict()}
+        contexto.dados["gramatica"] = analise.para_dict()
         linhas = []
         for achado in analise.achados[:6]:
             linhas.append(
                 f"[{achado.topico}] {achado.veredito}: {achado.regra} — "
                 f"{achado.explicacao}"
             )
-        contexto.resumo = "\n".join(linhas) or "Nenhuma armadilha clássica detectada."
+        contexto.resumo = _com_biblioteca(
+            "\n".join(linhas) or "Nenhuma armadilha clássica detectada.", livros
+        )
         return contexto
 
     if materia == "ingles":
         avaliacoes = avaliar_estrutura(enunciado)
         contrastes = contrastes_relevantes(enunciado, lingua="ingles")
         contexto.topico = contrastes[0].chave if contrastes else "geral"
-        contexto.dados = {
-            "avaliacoes": [a.para_dict() for a in avaliacoes],
-            "contrastes": [c.para_dict() for c in contrastes],
-        }
+        contexto.dados["avaliacoes"] = [a.para_dict() for a in avaliacoes]
+        contexto.dados["contrastes"] = [c.para_dict() for c in contrastes]
         linhas = [
             f"Erro de transferência detectado: “{a.construcao}” → {a.alternativa_melhor}"
             for a in avaliacoes
@@ -178,11 +196,36 @@ async def apurar(enunciado: str, materia: str = "") -> ContextoVerificado:
             f"Contraste relevante: {c.lado_a} × {c.lado_b} — {c.pergunta_decisiva}"
             for c in contrastes
         ]
-        contexto.resumo = "\n".join(linhas) or "Nenhum padrão conhecido detectado."
+        contexto.resumo = _com_biblioteca(
+            "\n".join(linhas) or "Nenhum padrão conhecido detectado.", livros
+        )
         return contexto
 
     contexto.resumo = ""
     return contexto
+
+
+def _trechos_da_biblioteca(consulta: str, limite: int = 2) -> list[dict[str, Any]]:
+    """O que os livros do estudante dizem sobre o assunto.
+
+    Citar o livro que ele já tem em mãos vale mais que citar um genérico: ele
+    pode abrir a página e continuar dali.
+    """
+    from ..biblioteca import buscar
+
+    try:
+        achados = buscar(consulta, limite=limite)
+    except Exception:
+        return []
+    return [
+        {
+            "livro": achado["titulo"],
+            "capitulo": achado.get("capitulo", ""),
+            "pagina": achado.get("pagina", 0) if achado.get("formato") == "pdf" else 0,
+            "trecho": achado["texto"][:300],
+        }
+        for achado in achados
+    ]
 
 
 # --------------------------------------------------------------------------

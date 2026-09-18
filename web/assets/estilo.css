@@ -975,3 +975,97 @@ code, pre, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
   .escada-degrau { min-width: 52px; }
   .escada-degrau small { font-size: 9.5px; }
 }
+
+/* ==========================================================================
+   Navegação agrupada, paleta de comandos e foco visível
+   ========================================================================== */
+
+.grupo-nav {
+  margin: 14px 0 4px; padding: 0 12px;
+  font-size: 10px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--texto-3); opacity: .75;
+}
+.grupo-nav:first-child { margin-top: 2px; }
+
+/* Foco sempre visível: navegação por teclado precisa ser utilizável. */
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--jade-400);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.aba:focus { outline: none; }
+
+/* ------------------------- paleta de comandos -------------------------- */
+.paleta { position: fixed; inset: 0; z-index: 100; display: grid; place-items: start center; padding-top: 12vh; }
+.paleta-fundo { position: absolute; inset: 0; background: rgba(4, 7, 14, .62); backdrop-filter: blur(3px); animation: surgir .16s ease; }
+.paleta-caixa {
+  position: relative; width: min(560px, 92vw); border-radius: var(--raio-lg);
+  border: 1px solid var(--borda-forte); background: var(--superficie-solida);
+  box-shadow: var(--sombra-alta); overflow: hidden;
+  animation: entrar-paleta .18s cubic-bezier(.2,.9,.3,1.1);
+}
+@keyframes entrar-paleta { from { opacity: 0; transform: translateY(-10px) scale(.98); } to { opacity: 1; transform: none; } }
+
+.paleta-campo { display: flex; align-items: center; gap: 11px; padding: 15px 18px; border-bottom: 1px solid var(--borda); }
+.paleta-campo svg { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--texto-3); stroke-width: 1.9; stroke-linecap: round; }
+.paleta-campo input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--texto); font: inherit; font-size: 16px; }
+.paleta-campo input:focus { outline: none; }
+.paleta-campo kbd {
+  padding: 2px 7px; border-radius: 6px; border: 1px solid var(--borda);
+  background: var(--superficie-alta); color: var(--texto-3);
+  font-family: Inter, sans-serif; font-size: 10.5px; font-weight: 600;
+}
+
+.paleta-lista { list-style: none; margin: 0; padding: 6px; max-height: 52vh; overflow-y: auto; }
+.paleta-item {
+  display: flex; align-items: center; gap: 11px; padding: 10px 12px;
+  border-radius: var(--raio-sm); cursor: pointer; font-size: 14.2px;
+  color: var(--texto-2); transition: background var(--transicao), color var(--transicao);
+}
+.paleta-item .icone { width: 22px; text-align: center; color: var(--jade-400); font-size: 13px; }
+.paleta-item small { margin-left: auto; font-size: 11.5px; color: var(--texto-3); }
+.paleta-item[aria-selected="true"], .paleta-item:hover {
+  background: color-mix(in srgb, var(--jade-500) 13%, transparent); color: var(--texto);
+}
+.paleta-vazia { padding: 22px 16px; text-align: center; color: var(--texto-3); font-size: 13.5px; }
+
+.dica-paleta {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--texto-3);
+}
+.dica-paleta kbd {
+  padding: 1px 6px; border-radius: 5px; border: 1px solid var(--borda);
+  background: var(--superficie-alta); font-family: Inter, sans-serif; font-size: 10px;
+}
+
+@media (max-width: 860px) {
+  .grupo-nav { display: none; }
+  .paleta { padding-top: 6vh; }
+}
+
+.atalho-paleta {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 9px 12px; margin-top: auto;
+  border: 1px solid var(--borda); border-radius: var(--raio-sm);
+  background: var(--superficie); color: var(--texto-3);
+  font: inherit; font-size: 13px; cursor: pointer; transition: var(--transicao);
+}
+.atalho-paleta:hover { border-color: var(--jade-400); color: var(--texto); }
+.atalho-paleta svg { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.atalho-paleta .dica-paleta { margin-left: auto; }
+.painel-progresso { margin-top: 0; }
+
+@media (max-width: 860px) { .atalho-paleta { display: none; } }
+
+.resumo-afericao {
+  display: flex; align-items: baseline; gap: 12px; margin-top: 16px;
+  padding: 14px 18px; border-radius: var(--raio);
+  border: 1px solid var(--borda); background: var(--superficie-solida);
+}
+.resumo-afericao b { font-family: Fraunces, serif; font-size: 26px; color: var(--texto-2); }
+.resumo-afericao span { font-size: 13.4px; color: var(--texto-3); }
+.resumo-afericao.pleno { border-color: color-mix(in srgb, var(--jade-400) 34%, transparent);
+                         background: color-mix(in srgb, var(--jade-500) 8%, transparent); }
+.resumo-afericao.pleno b { color: var(--jade-300); }
+.resumo-afericao.parcial { border-color: color-mix(in srgb, var(--ambar) 30%, transparent); }
+.resumo-afericao.parcial b { color: var(--ambar); }

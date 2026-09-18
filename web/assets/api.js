@@ -67,6 +67,7 @@
   global.API = {
     saude: () => obter("/api/saude"),
     fontes: () => obter("/api/fontes"),
+    afericao: () => obter("/api/afericao"),
     pesquisar: (corpo) => enviar("/api/pesquisar", corpo),
     pesquisarEmFluxo,
     flashcards: (corpo) => enviar("/api/flashcards", corpo),

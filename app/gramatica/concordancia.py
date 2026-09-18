@@ -37,6 +37,23 @@ _RE_SE_APASSIVADORA = re.compile(
     r"\b(\w+)-se\s+((?:os|as|uns|umas|muitos|muitas|v[áa]rios|v[áa]rias|dois|duas|"
     r"tr[êe]s)\s+)?([A-Za-zÀ-ÿ]+s)\b", re.IGNORECASE
 )
+
+# Contrações e preposições terminadas em -s que a regex do "se" apassivador
+# confundiria com sujeito no plural: "refere-se AOS alunos" não é passiva.
+_NAO_SAO_SUJEITO = {
+    "aos", "as", "às", "das", "dos", "nas", "nos", "pelas", "pelos", "mais",
+    "menos", "atras", "atrás", "apos", "após", "depois", "antes", "talvez",
+    "pois", "seus", "suas", "meus", "minhas", "nossos", "nossas",
+}
+
+# "Haviam chegado" é auxiliar, não impessoal: o erro clássico é só com haver
+# no sentido de existir. O particípio logo depois denuncia o auxiliar.
+_RE_PARTICIPIO = re.compile(
+    r"\b\w+(?:ado|ada|ados|adas|ido|ida|idos|idas)\b|"
+    r"\b(?:feito|dito|visto|posto|aberto|escrito|coberto|vindo|ido|pago|"
+    r"gasto|preso|morto|aceito|entregue|expulso)\b",
+    re.IGNORECASE,
+)
 _RE_SE_INDETERMINACAO = re.compile(
     r"\b(\w+)-se\s+(de|a|em|com|para|por)\b", re.IGNORECASE
 )
@@ -80,6 +97,25 @@ def analisar_concordancia(frase: str) -> list[AchadoConcordancia]:
     # --- haver impessoal ---------------------------------------------------
     for achado in _RE_HAVER_PLURAL.finditer(frase):
         forma = achado.group(1)
+        # Auxiliar de tempo composto: "haviam chegado", "haverão de partir".
+        # Aí o plural está certo, e acusar erro seria ensinar errado.
+        seguinte = frase[achado.end(): achado.end() + 24].strip()
+        primeira = seguinte.split()[0] if seguinte.split() else ""
+        if primeira and _RE_PARTICIPIO.fullmatch(primeira):
+            achados.append(AchadoConcordancia(
+                configuracao="“haver” como auxiliar",
+                trecho=_trecho(frase, achado),
+                veredito="correto",
+                regra=(
+                    "Seguido de particípio, “haver” é auxiliar de tempo "
+                    "composto e concorda normalmente com o sujeito: “eles "
+                    "haviam chegado”. A impessoalidade só vale no sentido "
+                    "de “existir”."
+                ),
+                teste="Troque por “tinham”. Se couber, é auxiliar e o plural "
+                      "está correto.",
+            ))
+            continue
         achados.append(AchadoConcordancia(
             configuracao="“haver” no plural",
             trecho=_trecho(frase, achado),
@@ -141,6 +177,9 @@ def analisar_concordancia(frase: str) -> list[AchadoConcordancia]:
             continue
         verbo = achado.group(1)
         sujeito = achado.group(3)
+        # "Refere-se aos alunos": "aos" é contração, não sujeito no plural.
+        if sujeito.lower() in _NAO_SAO_SUJEITO:
+            continue
         no_plural = verbo.lower().endswith(("m", "ram", "rao"))
         achados.append(AchadoConcordancia(
             configuracao="“se” apassivador (voz passiva sintética)",

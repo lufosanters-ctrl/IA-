@@ -112,6 +112,14 @@ class PedidoTentativa(BaseModel):
     texto: str = Field(min_length=1, max_length=6000)
 
 
+class PedidoTreino(BaseModel):
+    materia: Literal["", "portugues", "ingles", "matematica"] = ""
+    tipo_erro: str = Field(default="", max_length=40)
+    quantidade: int = Field(default=4, ge=1, le=10)
+    com_gabarito: bool = False
+    semente: int | None = None
+
+
 class PedidoAnaliseGramatical(BaseModel):
     frase: str = Field(min_length=2, max_length=2000)
 

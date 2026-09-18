@@ -84,12 +84,17 @@ class PadraoDeTransferencia:
     porque: str
     exemplo_errado: str
     exemplo_certo: str
+    # "erro" = a construção é agramatical em qualquer leitura.
+    # "suspeita" = o padrão também tem leitura correta, então o motor avisa
+    # sem condenar. Falso cognato e preposição ambígua caem aqui.
+    severidade: str = "erro"
 
     def para_dict(self) -> dict[str, Any]:
         return {
             "nome": self.nome, "problema": self.problema,
             "correcao": self.correcao, "porque": self.porque,
             "exemplo_errado": self.exemplo_errado, "exemplo_certo": self.exemplo_certo,
+            "severidade": self.severidade,
         }
 
 
@@ -116,7 +121,7 @@ TRANSFERENCIAS: tuple[PadraoDeTransferencia, ...] = (
     ),
     PadraoDeTransferencia(
         "explain + objeto indireto sem 'to'",
-        r"\bexplain\s+(me|him|her|us|them)\b",
+        r"\bexplain(?:s|ed|ing)?\s+(?:(?:me|us)\b|(?:him|her|them)\s+(?:the|this|that|these|those|a|an|my|your|our|their|everything|something|why|how|what)\b)",
         "“explain” não aceita objeto indireto sem preposição",
         "explain something to someone",
         "Diferente de “tell me”, o verbo explain exige “to”: a estrutura "
@@ -145,7 +150,7 @@ TRANSFERENCIAS: tuple[PadraoDeTransferencia, ...] = (
     ),
     PadraoDeTransferencia(
         "have + idade",
-        r"\b(i|he|she|we|they|you)\s+(have|has)\s+\d+\s+years?\s+old\b",
+        r"\b([A-Za-z']+)\s+(have|has|had)\s+\d+\s+years?\s+old\b",
         "idade não se expressa com “have” em inglês",
         "be + número + years old",
         "Em português “ter 20 anos”, em inglês “be 20 years old”.",
@@ -164,7 +169,7 @@ TRANSFERENCIAS: tuple[PadraoDeTransferencia, ...] = (
     PadraoDeTransferencia(
         "since + período de tempo",
         r"\bsince\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|"
-        r"ten|many|several|some|a few)\s+(?:years?|months?|weeks?|days?|hours?)\b",
+        r"ten|many|several|some|a few)\s+(?:years?|months?|weeks?|days?|hours?)\b(?!\s+ago)",
         "“since” marca ponto de partida, não duração",
         "for + duração / since + momento",
         "“for two years” (duração) × “since 2020” (ponto no tempo).",
@@ -179,15 +184,18 @@ TRANSFERENCIAS: tuple[PadraoDeTransferencia, ...] = (
         "“Pretend” significa fingir. “Pretender” é “intend” ou “plan”.",
         "I pretend to study abroad.",
         "I intend to study abroad.",
+        "suspeita",
     ),
     PadraoDeTransferencia(
         "actually = na verdade",
-        r"\bactually\b.{0,30}\b(nowadays|today|currently)\b",
+        r"\bactually\b\s*,?\s+(?:i|we|he|she|they|you)\s+"
+        r"(?:am|is|are|work|works|live|lives|study|studies)\b",
         "falso cognato",
         "currently / nowadays",
         "“Actually” quer dizer “na verdade”, não “atualmente”.",
         "Actually I work in a bank.",
         "Currently I work in a bank.",
+        "suspeita",
     ),
 )
 
@@ -204,11 +212,15 @@ def avaliar_estrutura(texto: str) -> list[Avaliacao]:
         achado = re.search(padrao.padrao, texto, re.IGNORECASE)
         if not achado:
             continue
+        suspeita = padrao.severidade == "suspeita"
         avaliacoes.append(Avaliacao(
             construcao=achado.group(0),
-            grammaticality="agramatical",
-            meaning=padrao.problema,
-            naturalness="soa traduzido",
+            grammaticality="ambíguo" if suspeita else "agramatical",
+            meaning=padrao.problema + (
+                " (esta construção também tem leitura correta — confira o "
+                "sentido pretendido)" if suspeita else ""
+            ),
+            naturalness="depende do sentido" if suspeita else "soa traduzido",
             register="—",
             frequency="erro frequente entre falantes de português",
             alternativa_melhor=padrao.correcao,

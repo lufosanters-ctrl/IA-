@@ -41,43 +41,65 @@
       </div>
     </div>
 
-    <nav class="navegacao" aria-label="Seções">
-      <button class="nav-item ativo" data-aba="pesquisar">
-        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <nav class="navegacao" role="tablist" aria-label="Seções do Núcleo"
+         aria-orientation="vertical">
+      <p class="grupo-nav" id="grupo-estudar">Estudar</p>
+      <button class="nav-item ativo" data-aba="pesquisar" role="tab"
+              id="aba-botao-pesquisar" aria-controls="aba-pesquisar"
+              aria-selected="true" tabindex="0">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
         Pesquisar
       </button>
-      <button class="nav-item" data-aba="revisao">
-        <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+      <button class="nav-item" data-aba="tutor" role="tab"
+              id="aba-botao-tutor" aria-controls="aba-tutor"
+              aria-selected="false" tabindex="-1">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="M6 10.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-5.5"/></svg>
+        Tutor
+      </button>
+      <button class="nav-item" data-aba="matematica" role="tab"
+              id="aba-botao-matematica" aria-controls="aba-matematica"
+              aria-selected="false" tabindex="-1">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14M7 12h10M9 19h6"/><path d="M5 5l6 14"/></svg>
+        Matemática
+      </button>
+      <button class="nav-item" data-aba="gramatica" role="tab"
+              id="aba-botao-gramatica" aria-controls="aba-gramatica"
+              aria-selected="false" tabindex="-1">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V5h16v2"/><path d="M9 20h6M12 5v15"/></svg>
+        Gramática
+      </button>
+
+      <p class="grupo-nav">Meu material</p>
+      <button class="nav-item" data-aba="revisao" role="tab"
+              id="aba-botao-revisao" aria-controls="aba-revisao"
+              aria-selected="false" tabindex="-1">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
         Revisão
         <span class="selo-contador" id="selo-devidos" hidden>0</span>
       </button>
-      <button class="nav-item" data-aba="tutor">
-        <svg viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="M6 10.5V16c0 1.7 2.7 3 6 3s6-1.3 6-3v-5.5"/></svg>
-        Tutor
-      </button>
-      <button class="nav-item" data-aba="gramatica">
-        <svg viewBox="0 0 24 24"><path d="M4 7V5h16v2"/><path d="M9 20h6M12 5v15"/></svg>
-        Gramática
-      </button>
-      <button class="nav-item" data-aba="matematica">
-        <svg viewBox="0 0 24 24"><path d="M5 5h14M7 12h10M9 19h6"/><path d="M5 5l6 14"/></svg>
-        Matemática
-      </button>
-      <button class="nav-item" data-aba="biblioteca">
-        <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7"/></svg>
+      <button class="nav-item" data-aba="biblioteca" role="tab"
+              id="aba-botao-biblioteca" aria-controls="aba-biblioteca"
+              aria-selected="false" tabindex="-1">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7"/></svg>
         Biblioteca
         <span class="selo-contador cinza" id="selo-livros" hidden>0</span>
       </button>
-      <button class="nav-item" data-aba="plano">
-        <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg>
+      <button class="nav-item" data-aba="plano" role="tab"
+              id="aba-botao-plano" aria-controls="aba-plano"
+              aria-selected="false" tabindex="-1">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg>
         Plano de estudo
       </button>
-      <button class="nav-item" data-aba="historico">
-        <svg viewBox="0 0 24 24"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+      <button class="nav-item" data-aba="historico" role="tab"
+              id="aba-botao-historico" aria-controls="aba-historico"
+              aria-selected="false" tabindex="-1">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>
         Histórico
       </button>
-      <button class="nav-item" data-aba="fontes">
-        <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+      <button class="nav-item" data-aba="fontes" role="tab"
+              id="aba-botao-fontes" aria-controls="aba-fontes"
+              aria-selected="false" tabindex="-1">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
         Bases de dados
       </button>
     </nav>
@@ -91,6 +113,12 @@
         <div class="metrica"><b id="m-acerto">—</b><span>acerto</span></div>
       </div>
     </div>
+
+    <button class="atalho-paleta" id="abrir-paleta" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      Ir para…
+      <span class="dica-paleta"><kbd>ctrl</kbd><kbd>K</kbd></span>
+    </button>
 
     <div class="rodape-lateral">
       <div class="estado-modelo" id="estado-modelo" title="Modo de operação">
@@ -107,7 +135,7 @@
   <main class="conteudo">
 
     <!-- ---------------------------- PESQUISAR ---------------------------- -->
-    <section class="aba ativa" id="aba-pesquisar">
+    <section class="aba ativa" id="aba-pesquisar" role="tabpanel" aria-labelledby="aba-botao-pesquisar" tabindex="-1">
 
       <header class="cabecalho" id="cabecalho-inicial">
         <h1>Pergunte. O Núcleo <em>procura nas bases reais</em>.</h1>
@@ -225,7 +253,7 @@
     </section>
 
     <!-- ----------------------------- REVISÃO ----------------------------- -->
-    <section class="aba" id="aba-revisao">
+    <section class="aba" id="aba-revisao" role="tabpanel" aria-labelledby="aba-botao-revisao" tabindex="-1">
       <header class="cabecalho compacto">
         <h1>Revisão espaçada</h1>
         <p>O algoritmo SM-2 decide o melhor dia para você rever cada cartão.
@@ -252,7 +280,7 @@
     </section>
 
     <!-- ------------------------------ TUTOR ------------------------------- -->
-    <section class="aba" id="aba-tutor">
+    <section class="aba" id="aba-tutor" role="tabpanel" aria-labelledby="aba-botao-tutor" tabindex="-1">
       <header class="cabecalho compacto">
         <h1>Modo tutor</h1>
         <p>Aqui a resposta não vem de graça. A ajuda sobe um degrau de cada vez,
@@ -288,7 +316,7 @@
     </section>
 
     <!-- ---------------------------- GRAMÁTICA ----------------------------- -->
-    <section class="aba" id="aba-gramatica">
+    <section class="aba" id="aba-gramatica" role="tabpanel" aria-labelledby="aba-botao-gramatica" tabindex="-1">
       <header class="cabecalho compacto">
         <h1>Gramática verificada</h1>
         <p>Crase, regência, colocação pronominal e concordância analisadas por
@@ -324,7 +352,7 @@
     </section>
 
     <!-- ---------------------------- MATEMÁTICA ---------------------------- -->
-    <section class="aba" id="aba-matematica">
+    <section class="aba" id="aba-matematica" role="tabpanel" aria-labelledby="aba-botao-matematica" tabindex="-1">
       <header class="cabecalho compacto">
         <h1>Motor matemático</h1>
         <p>Resolve, verifica com álgebra computacional e critica a própria solução.
@@ -383,7 +411,7 @@
     </section>
 
     <!-- ---------------------------- BIBLIOTECA ---------------------------- -->
-    <section class="aba" id="aba-biblioteca">
+    <section class="aba" id="aba-biblioteca" role="tabpanel" aria-labelledby="aba-botao-biblioteca" tabindex="-1">
       <header class="cabecalho compacto">
         <h1>Sua biblioteca</h1>
         <p>Livros didáticos indexados na sua máquina. O Núcleo procura neles
@@ -425,7 +453,7 @@
     </section>
 
     <!-- ------------------------------ PLANO ------------------------------ -->
-    <section class="aba" id="aba-plano">
+    <section class="aba" id="aba-plano" role="tabpanel" aria-labelledby="aba-botao-plano" tabindex="-1">
       <header class="cabecalho compacto">
         <h1>Plano de estudo</h1>
         <p>Diga o tema e quanto tempo você tem. O Núcleo pesquisa as fontes e
@@ -465,7 +493,7 @@
     </section>
 
     <!-- ---------------------------- HISTÓRICO ---------------------------- -->
-    <section class="aba" id="aba-historico">
+    <section class="aba" id="aba-historico" role="tabpanel" aria-labelledby="aba-botao-historico" tabindex="-1">
       <header class="cabecalho compacto">
         <h1>Histórico</h1>
         <p>Tudo o que você pesquisou fica salvo localmente, em <code>data/nucleo.db</code>.</p>
@@ -476,16 +504,41 @@
     </section>
 
     <!-- ----------------------------- FONTES ------------------------------ -->
-    <section class="aba" id="aba-fontes">
+    <section class="aba" id="aba-fontes" role="tabpanel" aria-labelledby="aba-botao-fontes" tabindex="-1">
       <header class="cabecalho compacto">
         <h1>Bases de dados</h1>
         <p>Todas públicas, todas sem chave de API. O roteador escolhe as mais
            adequadas conforme a área da sua pergunta.</p>
       </header>
       <div class="grade-fontes" id="grade-fontes"></div>
+
+      <div class="cartao" id="cartao-afericao" style="margin-top:22px">
+        <h2 class="titulo-secao">
+          <svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.4 3.4 8.5 8 9.5 4.6-1 8-5.1 8-9.5V6l-8-3z"/><path d="m9 12 2 2 4-4"/></svg>
+          Aferição dos motores
+        </h2>
+        <p class="nota-secao">Casos com gabarito conhecido, tirados das regras
+           consagradas e do tipo de questão que cai em prova. Responde ao que
+           nenhum teste de unidade responde: os motores estão acertando?</p>
+        <button class="botao-secundario" id="btn-aferir">Rodar aferição</button>
+        <div id="saida-afericao"></div>
+      </div>
     </section>
 
   </main>
+</div>
+
+<div class="paleta" id="paleta" hidden>
+  <div class="paleta-fundo" data-fechar-paleta></div>
+  <div class="paleta-caixa" role="dialog" aria-modal="true" aria-label="Ir para">
+    <div class="paleta-campo">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="paleta-entrada" type="text" placeholder="Ir para… (pesquisar, tutor, crase, revisão)"
+             aria-label="Buscar seção ou ação" autocomplete="off">
+      <kbd>esc</kbd>
+    </div>
+    <ul class="paleta-lista" id="paleta-lista" role="listbox" aria-label="Resultados"></ul>
+  </div>
 </div>
 
 <div class="avisos" id="avisos" role="status" aria-live="polite"></div>

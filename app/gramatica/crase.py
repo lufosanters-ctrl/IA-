@@ -32,7 +32,9 @@ from .lexico import (
     PRONOMES_PESSOAIS,
     PRONOMES_TRATAMENTO,
     REPETIVEIS,
+    e_comum_de_dois,
     e_numeral_cardinal,
+    e_tratamento,
     e_plural,
     e_verbo_no_infinitivo,
     genero,
@@ -115,6 +117,16 @@ LOCUCOES_SEM_CRASE: dict[str, str] = {
     "a cada": "antes de pronome indefinido não há artigo",
 }
 
+# Locucoes que sao homografas de sintagmas nominais comuns. "A noite estava
+# fria" e sujeito, nao locucao adverbial; "A vista do mar" idem. Quando uma
+# delas abre a oracao sem virgula depois, e sujeito — e sujeito nao leva crase.
+LOCUCOES_AMBIGUAS = {
+    "a noite", "a tarde", "a vista", "a direita", "a esquerda", "a distancia",
+    "a mao", "a forca", "a vontade", "a frente de", "a base de", "a maneira de",
+    "a margem de", "a altura de",
+    "a caneta", "a tinta", "a maquina", "a prova de", "a luz de",
+}
+
 _RE_PALAVRA = re.compile(r"[0-9A-Za-zÀ-ÿ][0-9A-Za-zÀ-ÿ'-]*")
 _RE_HORA = re.compile(r"^\d{1,2}(?:[h:]\d{0,2})?$")
 
@@ -181,6 +193,26 @@ def _locucao_a_partir_de(palavras: list[str], indice: int) -> tuple[str, str, bo
     return None
 
 
+def _e_sujeito_e_nao_locucao(trecho: str, marcas: list[Any], indice: int,
+                             frase: str) -> bool:
+    """`A noite estava fria` e sujeito; `A noite, saimos` e adverbio deslocado.
+
+    Uma locucao adverbial homografa de sintagma nominal so vale no inicio da
+    oracao quando vem separada por virgula. Sem a virgula, o que abre a frase
+    e o sujeito — e sujeito nunca leva crase.
+    """
+    if trecho not in LOCUCOES_AMBIGUAS:
+        return False
+    if indice != 0:
+        return False
+    tamanho = len(trecho.split())
+    fim = indice + tamanho - 1
+    if fim >= len(marcas):
+        return False
+    depois = frase[marcas[fim].end(): marcas[fim].end() + 2]
+    return "," not in depois
+
+
 def _proibicao(seguinte: str, escrito: str, palavras: list[str],
                indice: int) -> tuple[str, str] | None:
     """Testa as proibições absolutas. Devolve (regra, explicação) ou None."""
@@ -205,11 +237,13 @@ def _proibicao(seguinte: str, escrito: str, palavras: list[str],
         return ("antes de pronome indefinido",
                 f"“{seguinte}” é pronome indefinido e não vem acompanhado de artigo.")
 
-    if alvo in PRONOMES_TRATAMENTO:
+    if e_tratamento(palavras, indice + 1):
         return ("antes de pronome de tratamento",
                 f"Pronomes de tratamento como “{seguinte}” não admitem artigo.")
 
-    if e_numeral_cardinal(seguinte) and not _RE_HORA.match(alvo):
+    if e_numeral_cardinal(seguinte):
+        # A exceção das horas já foi tratada antes desta função; aqui só resta
+        # o numeral comum. O teste de "hora" fica como segunda barreira.
         seguintes = " ".join(normalizado(p) for p in palavras[indice + 1: indice + 3])
         if "hora" not in seguintes:
             return ("antes de numeral cardinal",
@@ -272,8 +306,12 @@ def _posicoes_dos_verbos(palavras: list[str], verbos: list[str]) -> list[tuple[i
 
     posicoes: list[tuple[int, str]] = []
     for indice, palavra in enumerate(palavras):
+        limpa = normalizado(palavra)
+        # "Refiro-me" é um token só: o verbo está antes do hífen.
+        formas = {limpa, limpa.split("-", 1)[0]}
         for verbo in verbos:
-            if _padrao_do_verbo(verbo).fullmatch(normalizado(palavra)):
+            padrao = _padrao_do_verbo(verbo)
+            if any(padrao.fullmatch(forma) for forma in formas if forma):
                 posicoes.append((indice, verbo))
                 break
     return posicoes
@@ -289,7 +327,8 @@ def _regido_por(indice: int, posicoes: list[tuple[int, str]]) -> str:
 
 def analisar_crase(frase: str) -> list[OcorrenciaCrase]:
     """Analisa todas as ocorrências de “a/à” de uma frase."""
-    palavras = _RE_PALAVRA.findall(frase or "")
+    marcas = list(_RE_PALAVRA.finditer(frase or ""))
+    palavras = [m.group(0) for m in marcas]
     if not palavras:
         return []
 
@@ -303,7 +342,14 @@ def analisar_crase(frase: str) -> list[OcorrenciaCrase]:
         if not any(s.exige_a for s in sentidos):
             continue
         regentes.append(verbo)
-        if all(s.exige_a for s in sentidos):
+        # So e conclusivo quando TODOS os sentidos pedem "a" e o complemento
+        # que vem logo depois e mesmo o indireto. Em bitransitivos ("convidar
+        # alguem PARA algo", "informar algo A alguem") o termo colado no verbo
+        # e o objeto DIRETO, que nao leva crase: "Convidei a aluna" esta certo.
+        conclusivo = all(
+            s.exige_a and s.transitividade.strip() == "indireto" for s in sentidos
+        )
+        if conclusivo:
             regentes_certos.append(verbo)
         else:
             ambiguos.append(verbo)
@@ -365,6 +411,20 @@ def analisar_crase(frase: str) -> list[OcorrenciaCrase]:
 
         # 2) Locuções consagradas.
         locucao = _locucao_a_partir_de(palavras, indice)
+        if locucao and _e_sujeito_e_nao_locucao(locucao[0], marcas, indice, frase):
+            ocorrencias.append(OcorrenciaCrase(
+                escrito=bruta, termo_seguinte=seguinte, contexto=contexto,
+                situacao=PROIBIDA,
+                forma_correta="a" if alvo_sem_acento == "a" else "as",
+                regra="artigo do sujeito",
+                explicacao=(
+                    f"Aqui \u201c{bruta} {seguinte}\u201d abre a ora\u00e7\u00e3o como sujeito, n\u00e3o como "
+                    "locu\u00e7\u00e3o adverbial. Sujeito n\u00e3o vem regido de preposi\u00e7\u00e3o, "
+                    "ent\u00e3o o \u201ca\u201d \u00e9 s\u00f3 artigo e fica sem acento."
+                ),
+                correto=not acentuado, verbos_regentes=regentes,
+            ))
+            continue
         if locucao:
             trecho, motivo, com_crase = locucao
             ocorrencias.append(OcorrenciaCrase(
@@ -385,10 +445,19 @@ def analisar_crase(frase: str) -> list[OcorrenciaCrase]:
         if not seguinte:
             continue
 
-        # 3) Horas determinadas.
-        if _RE_HORA.match(normalizado(seguinte)) or (
-            normalizado(seguinte) in {"uma", "duas"} 
-            and "hora" in " ".join(normalizado(p) for p in palavras[indice: indice + 3])
+        # 3) Horas determinadas. Só vale com evidência de horário: sem ela,
+        #    "de 2 a 4 semanas" viraria "às 4 semanas".
+        vizinhanca = " ".join(normalizado(p) for p in palavras[indice: indice + 3])
+        fala_de_hora = (
+            "hora" in vizinhanca
+            or re.search(r"\d\s*[h:]", " ".join(palavras[indice: indice + 2]))
+            or "meio-dia" in vizinhanca
+            or "meia-noite" in vizinhanca
+        )
+        if fala_de_hora and (
+            _RE_HORA.match(normalizado(seguinte))
+            or e_numeral_cardinal(seguinte)
+            or normalizado(seguinte) in {"uma", "duas", "meia"}
         ):
             ocorrencias.append(OcorrenciaCrase(
                 escrito=bruta, termo_seguinte=seguinte, contexto=contexto,

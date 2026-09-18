@@ -390,7 +390,11 @@ def _notacao(enunciado: str) -> list[str]:
         marcas.append("sequencias")
     if re.search(r"\bC\(\s*\d+\s*,|\bbinom|\b\d+!\B|\bP\(\s*[A-Z]", enunciado):
         marcas.append("combinatoria")
-    if re.search(r"\[\s*[-\d].*\]|\bdet\s*\(", enunciado):
+    # Matriz: colchete aninhado, linhas separadas por ";" ou determinante.
+    # Um colchete simples como "[0, 2pi]" e intervalo, nao matriz — a regex
+    # antiga mandava toda questao de trigonometria e calculo para "matrizes".
+    if re.search(r"\[\s*\[|\[[^\]]*;[^\]]*\]|\bdet\s*\(|\bdet\s+[A-Z]\b",
+                 enunciado):
         marcas.append("matrizes")
     return marcas
 

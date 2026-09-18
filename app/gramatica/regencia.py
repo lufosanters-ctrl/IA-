@@ -434,3 +434,210 @@ def nomes_na_frase(frase: str) -> list[tuple[str, tuple[str, ...]]]:
         if re.search(rf"\b{re.escape(alvo)}(?:s|es|a|as)?\b", texto):
             achados.append((nome, preposicoes))
     return achados
+
+
+# --------------------------------------------------------------------------
+# Conferencia: o dicionario acima diz o que o verbo PEDE; esta parte compara
+# com o que a frase REALMENTE usou.
+# --------------------------------------------------------------------------
+
+# Como cada preposicao aparece de fato no texto, ja contraida com artigo.
+CONTRACOES: dict[str, str] = {
+    "a": "a", "ao": "a", "aos": "a", "à": "a", "às": "a", "a": "a",
+    "de": "de", "do": "de", "da": "de", "dos": "de", "das": "de",
+    "dele": "de", "dela": "de", "deste": "de", "desta": "de", "desse": "de",
+    "dessa": "de", "daquele": "de", "daquela": "de", "disso": "de", "disto": "de",
+    "em": "em", "no": "em", "na": "em", "nos": "em", "nas": "em",
+    "num": "em", "numa": "em", "nele": "em", "nela": "em", "neste": "em",
+    "nesta": "em", "nesse": "em", "nessa": "em", "naquele": "em", "nisso": "em",
+    "com": "com", "comigo": "com", "contigo": "com", "conosco": "com",
+    "por": "por", "pelo": "por", "pela": "por", "pelos": "por", "pelas": "por",
+    "para": "para", "pra": "para", "pro": "para", "pras": "para",
+    "sobre": "sobre", "sob": "sob", "ante": "ante", "apos": "apos",
+    "ate": "ate", "contra": "contra", "desde": "desde", "entre": "entre",
+    "perante": "perante", "sem": "sem", "tras": "tras",
+}
+
+# Artigos e demonstrativos SEM preposicao embutida: a presenca de um deles
+# logo depois do verbo indica objeto direto — e portanto preposicao ausente.
+# Substantivos que dispensam artigo por natureza: depois deles o "a" sem
+# acento pode ser a preposicao sozinha. "Cheguei a casa" esta correto.
+SEM_ARTIGO_POR_NATURAL = {
+    "casa", "terra", "bordo", "missa", "palacio", "domicilio", "bordo",
+    "roma", "portugal", "israel", "paris", "belem", "salvador", "recife",
+}
+
+ARTIGOS_NUS = {
+    "o", "a", "os", "as", "um", "uma", "uns", "umas",
+    "este", "esta", "estes", "estas", "esse", "essa", "esses", "essas",
+    "aquele", "aquela", "aqueles", "aquelas", "meu", "minha", "seu", "sua",
+    "nosso", "nossa", "teu", "tua",
+}
+
+# Verbos curtos demais para a deteccao por radical ser confiavel.
+_CURTOS_DEMAIS = {"ir", "ver", "ter", "vir", "por"}
+
+_RE_TOKEN = re.compile(r"[0-9A-Za-zÀ-ÿ][0-9A-Za-zÀ-ÿ'-]*")
+
+
+@dataclass(frozen=True, slots=True)
+class DesvioRegencia:
+    """Uma regencia que a frase usou de forma diferente da registrada."""
+
+    verbo: str
+    forma_usada: str
+    preposicao_usada: str
+    preposicoes_esperadas: tuple[str, ...]
+    problema: str
+    explicacao: str
+    sugestao: str
+    exemplo: str
+
+    def para_dict(self) -> dict[str, Any]:
+        return {
+            "verbo": self.verbo,
+            "forma_usada": self.forma_usada,
+            "preposicao_usada": self.preposicao_usada,
+            "preposicoes_esperadas": list(self.preposicoes_esperadas),
+            "problema": self.problema,
+            "explicacao": self.explicacao,
+            "sugestao": self.sugestao,
+            "exemplo": self.exemplo,
+        }
+
+
+def _preposicao_do_token(bruto: str) -> str:
+    """A preposicao que este token carrega, ja desfeita a contracao."""
+    limpo = bruto.lower().strip(" .,;:!?()[]\"'")
+    # "à/às" so existem com preposicao dentro; "a/as" sem acento sao artigo.
+    if limpo in {"à", "às", "àquele", "àquela", "àqueles", "àquelas", "àquilo"}:
+        return "a"
+    chave = normalizar(limpo)
+    if chave in ARTIGOS_NUS:
+        return ""
+    return CONTRACOES.get(chave, "")
+
+
+def conferir_regencia(frase: str) -> list[DesvioRegencia]:
+    """Compara a preposicao usada na frase com a que o verbo exige.
+
+    Conservador de proposito: so acusa desvio em verbo de sentido unico no
+    dicionario. Verbo polissemico ("assistir", "visar") muda de regencia com
+    o sentido, e quem decide o sentido e o estudante, nao o motor.
+    """
+    marcas = list(_RE_TOKEN.finditer(frase or ""))
+    if not marcas:
+        return []
+    brutos = [m.group(0) for m in marcas]
+    normais = [normalizar(b) for b in brutos]
+
+    desvios: list[DesvioRegencia] = []
+    for infinitivo, sentidos in REGENCIA_VERBAL.items():
+        if len(sentidos) != 1 or infinitivo in _CURTOS_DEMAIS:
+            continue
+        sentido = sentidos[0]
+        if sentido.transitividade == "intransitivo":
+            continue
+        padrao = _padrao_do_verbo(infinitivo)
+        for indice, normal in enumerate(normais):
+            if not padrao.fullmatch(normal):
+                continue
+            seguinte = brutos[indice + 1] if indice + 1 < len(brutos) else ""
+            if not seguinte:
+                continue
+            usada = _preposicao_do_token(seguinte)
+            desvio = _avaliar(infinitivo, sentido, brutos[indice], seguinte,
+                              usada, normais, indice)
+            if desvio:
+                desvios.append(desvio)
+            break
+    return desvios
+
+
+def _avaliar(infinitivo: str, sentido: Sentido, forma: str, seguinte: str,
+             usada: str, normais: list[str], indice: int) -> DesvioRegencia | None:
+    esperadas = sentido.preposicoes
+
+    # Caso classico e proprio: "preferir A a B" nao admite "do que"/"mais".
+    if infinitivo == "preferir":
+        janela = normais[indice: indice + 9]
+        if "que" in janela or "mais" in janela:
+            return DesvioRegencia(
+                verbo="preferir", forma_usada=forma, preposicao_usada="do que",
+                preposicoes_esperadas=("a",),
+                problema="reforco indevido",
+                explicacao=(
+                    "“Preferir” já traz a ideia de preferência: o segundo termo "
+                    "entra com a preposição “a”, sem “do que”, “mais” ou “antes”."
+                ),
+                sugestao="Prefiro café a chá.",
+                exemplo=sentido.exemplo,
+            )
+        return None
+
+    transitividade = sentido.transitividade.strip()
+
+    if transitividade == "direto":
+        if usada and usada in {"a", "com", "de", "em"}:
+            return DesvioRegencia(
+                verbo=infinitivo, forma_usada=forma, preposicao_usada=usada,
+                preposicoes_esperadas=(),
+                problema="preposicao a mais",
+                explicacao=(
+                    f"“{infinitivo}” é transitivo direto neste sentido: o "
+                    "complemento vem sem preposição."
+                ),
+                sugestao=f"{forma} {seguinte.lstrip('aàdcenopm')}".strip(),
+                exemplo=sentido.exemplo,
+            )
+        return None
+
+    # Bitransitivo: o termo colado ao verbo pode ser o objeto direto, entao a
+    # ausencia de preposicao nao e desvio. Cuidado: "direto" e substring de
+    # "indireto", entao a comparacao precisa ser exata.
+    if transitividade == "direto e indireto":
+        if usada and usada not in esperadas and usada not in {"para", "de"}:
+            return DesvioRegencia(
+                verbo=infinitivo, forma_usada=forma, preposicao_usada=usada,
+                preposicoes_esperadas=esperadas,
+                problema="preposicao trocada",
+                explicacao=(
+                    f"“{infinitivo}” rege {' ou '.join(esperadas)}, não “{usada}”."
+                ),
+                sugestao=sentido.exemplo,
+                exemplo=sentido.exemplo,
+            )
+        return None
+
+    # Transitivo indireto puro: a preposicao e obrigatoria.
+    if not usada:
+        # "a" sem acento diante de nome que dispensa artigo pode ser a
+        # preposicao sozinha: "Cheguei a casa" esta correto.
+        proximo = normais[indice + 2] if indice + 2 < len(normais) else ""
+        if (normalizar(seguinte) == "a" and "a" in esperadas
+                and proximo in SEM_ARTIGO_POR_NATURAL):
+            return None
+        return DesvioRegencia(
+            verbo=infinitivo, forma_usada=forma, preposicao_usada="",
+            preposicoes_esperadas=esperadas,
+            problema="preposicao ausente",
+            explicacao=(
+                f"“{infinitivo}” é transitivo indireto: exige a preposição "
+                f"“{esperadas[0]}”. Sem ela, o complemento fica solto."
+            ),
+            sugestao=sentido.exemplo,
+            exemplo=sentido.exemplo,
+        )
+    if usada not in esperadas:
+        return DesvioRegencia(
+            verbo=infinitivo, forma_usada=forma, preposicao_usada=usada,
+            preposicoes_esperadas=esperadas,
+            problema="preposicao trocada",
+            explicacao=(
+                f"“{infinitivo}” rege {' ou '.join(esperadas)}; a frase usou "
+                f"“{usada}”."
+            ),
+            sugestao=sentido.exemplo,
+            exemplo=sentido.exemplo,
+        )
+    return None

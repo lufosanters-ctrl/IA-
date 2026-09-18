@@ -5,6 +5,7 @@ Sobe com:  python -m app         ou       uvicorn app.main:app --reload
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -19,9 +20,10 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__, banco, biblioteca
 from . import gramatica, ingles, matematica, tutor
+from .afericao import aferir
 from .ai import estudo, pesquisa
 from .ingles.dimensoes import DIMENSOES
-from .tutor import DEGRAUS, tutoria, visao
+from .tutor import DEGRAUS, treino, tutoria, visao
 from .tutor.escada import detectar_pedido, proximo_degrau
 from .tutor.sessao import TIPOS_DE_ERRO
 from .catalogo import baixar_catalogo, listar_catalogo
@@ -51,6 +53,7 @@ from .schemas import (
     PedidoSalvarCartoes,
     PedidoSessaoTutor,
     PedidoTentativa,
+    PedidoTreino,
 )
 from .sources.registro import listar_fontes, rotular_area
 
@@ -626,6 +629,21 @@ async def tutor_tentativa(sessao_id: int, pedido: PedidoTentativa) -> dict[str, 
     return saida
 
 
+@app.post("/api/tutor/treino", tags=["tutoria"])
+async def tutor_treino(pedido: PedidoTreino) -> dict[str, Any]:
+    """Monta um treino dirigido ao erro que mais se repete.
+
+    Dizer “cuidado com o sinal” não corrige ninguém. Praticar exatamente o
+    ponto em que se erra, sim — e é isso que este endpoint monta, a partir do
+    histórico acumulado nas sessões.
+    """
+    montado = await asyncio.to_thread(
+        treino.montar_treino,
+        pedido.materia, pedido.tipo_erro, pedido.quantidade, pedido.semente,
+    )
+    return montado.para_dict(com_gabarito=pedido.com_gabarito)
+
+
 @app.get("/api/tutor/sessoes", tags=["tutoria"])
 async def tutor_sessoes(limite: int = Query(default=20, ge=1, le=100)) -> list[dict[str, Any]]:
     return tutor.listar_sessoes(limite)
@@ -713,6 +731,17 @@ async def ingles_contrastes(lingua: str = Query(default="")) -> list[dict[str, A
     ]
 
 
+@app.get("/api/afericao", tags=["sistema"])
+async def afericao_do_sistema(area: str = Query(default="")) -> dict[str, Any]:
+    """Roda os casos de referência e devolve a taxa de acerto por área.
+
+    É a resposta à pergunta que nenhum teste de unidade responde: os motores
+    estão acertando? Os casos têm gabarito conhecido, tirados das regras
+    consagradas e do tipo de questão que cai em prova.
+    """
+    return await asyncio.to_thread(lambda: aferir(area).para_dict())
+
+
 # --------------------------------------------------------------------------
 # Interface web
 # --------------------------------------------------------------------------
@@ -727,6 +756,8 @@ if cfg.diretorio_web.exists():
     @app.get("/", include_in_schema=False)
     async def raiz() -> FileResponse:
         return FileResponse(cfg.diretorio_web / "index.html")
+
+
 
 
 

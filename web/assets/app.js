@@ -57,9 +57,26 @@
     });
   }
 
-  function trocarAba(nome) {
-    $$(".nav-item").forEach((b) => b.classList.toggle("ativo", b.dataset.aba === nome));
+  function trocarAba(nome, comFoco) {
+    const existe = $$(".nav-item").some((b) => b.dataset.aba === nome);
+    if (!existe) nome = "pesquisar";
+
+    $$(".nav-item").forEach((b) => {
+      const ativo = b.dataset.aba === nome;
+      b.classList.toggle("ativo", ativo);
+      b.setAttribute("aria-selected", ativo ? "true" : "false");
+      b.tabIndex = ativo ? 0 : -1;
+      if (ativo && comFoco) b.focus();
+    });
     $$(".aba").forEach((s) => s.classList.toggle("ativa", s.id === `aba-${nome}`));
+
+    /* A aba entra no endereço: recarregar a página mantém onde você estava,
+       e o link pode ser compartilhado. */
+    if (window.location.hash !== `#${nome}`) {
+      window.history.replaceState(null, "", `#${nome}`);
+    }
+    try { localStorage.setItem("nucleo-aba", nome); } catch (_) { /* modo privado */ }
+
     window.scrollTo({ top: 0, behavior: "smooth" });
     if (nome === "historico") carregarHistorico();
     if (nome === "revisao") carregarBaralhos();
@@ -85,6 +102,9 @@
   async function iniciar() {
     aplicarTemaSalvo();
     ligarEventos();
+    ligarPaleta();
+    ligarCapturaDeErros();
+    restaurarAba();
     try {
       const saude = await window.API.saude();
       estado.fontes = saude.fontes || [];
@@ -114,19 +134,72 @@
     }
   }
 
+  /** Volta para a aba do endereço ou para a última usada. */
+  function restaurarAba() {
+    const doEndereco = window.location.hash.replace("#", "");
+    let salva = "";
+    try { salva = localStorage.getItem("nucleo-aba") || ""; } catch (_) { /* modo privado */ }
+    const alvo = doEndereco || salva;
+    if (alvo && alvo !== "pesquisar") trocarAba(alvo);
+  }
+
+  /** Falha não tratada precisa aparecer, não sumir no console. */
+  function ligarCapturaDeErros() {
+    window.addEventListener("unhandledrejection", (evento) => {
+      const motivo = evento.reason;
+      const mensagem = (motivo && motivo.message) || String(motivo || "erro desconhecido");
+      avisar(`Algo falhou: ${mensagem}`, "erro");
+    });
+    window.addEventListener("error", (evento) => {
+      if (evento.message) avisar(`Erro na página: ${evento.message}`, "erro");
+    });
+  }
+
   function aplicarTemaSalvo() {
-    const salvo = localStorage.getItem("nucleo-tema");
-    if (salvo) document.documentElement.dataset.tema = salvo;
+    try {
+      const salvo = localStorage.getItem("nucleo-tema");
+      if (salvo) document.documentElement.dataset.tema = salvo;
+    } catch (_) { /* modo privado: fica no tema padrão */ }
+  }
+
+  function alternarTema() {
+    const atual = document.documentElement.dataset.tema === "claro" ? "escuro" : "claro";
+    document.documentElement.dataset.tema = atual;
+    try { localStorage.setItem("nucleo-tema", atual); } catch (_) { /* modo privado */ }
+  }
+
+  function abasDisponiveis() {
+    return $$(".nav-item").map((b) => b.dataset.aba);
   }
 
   function ligarEventos() {
-    $$(".nav-item").forEach((b) => b.addEventListener("click", () => trocarAba(b.dataset.aba)));
-
-    $("#alternar-tema").addEventListener("click", () => {
-      const atual = document.documentElement.dataset.tema === "claro" ? "escuro" : "claro";
-      document.documentElement.dataset.tema = atual;
-      localStorage.setItem("nucleo-tema", atual);
+    $$(".nav-item").forEach((botao) => {
+      botao.addEventListener("click", () => trocarAba(botao.dataset.aba));
+      botao.addEventListener("keydown", (evento) => {
+        const abas = abasDisponiveis();
+        const atual = abas.indexOf(botao.dataset.aba);
+        const passo = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[evento.key];
+        if (passo) {
+          evento.preventDefault();
+          trocarAba(abas[(atual + passo + abas.length) % abas.length], true);
+        } else if (evento.key === "Home") {
+          evento.preventDefault();
+          trocarAba(abas[0], true);
+        } else if (evento.key === "End") {
+          evento.preventDefault();
+          trocarAba(abas[abas.length - 1], true);
+        }
+      });
     });
+
+    window.addEventListener("hashchange", () => {
+      const alvo = window.location.hash.replace("#", "");
+      if (alvo) trocarAba(alvo);
+    });
+
+    $("#alternar-tema").addEventListener("click", alternarTema);
+    $("#abrir-paleta").addEventListener("click", abrirPaleta);
+    $("#btn-aferir").addEventListener("click", rodarAfericao);
 
     ligarSegmentado("#seg-profundidade", (v) => { estado.profundidade = v; });
     ligarSegmentado("#seg-idioma", (v) => { estado.idioma = v; });
@@ -176,10 +249,9 @@
     $("#btn-iniciar-revisao").addEventListener("click", iniciarRevisao);
 
     document.addEventListener("keydown", (evento) => {
-      if ((evento.ctrlKey || evento.metaKey) && evento.key === "k") {
+      if ((evento.ctrlKey || evento.metaKey) && evento.key.toLowerCase() === "k") {
         evento.preventDefault();
-        trocarAba("pesquisar");
-        $("#entrada-pergunta").focus();
+        abrirPaleta();
       }
     });
   }
@@ -1950,6 +2022,207 @@
         });
       });
     } catch (erro) { avisar(erro.message, "erro"); }
+  }
+
+
+  /* ====================================================================
+     Aferição dos motores
+     ==================================================================== */
+
+  async function rodarAfericao() {
+    const botao = $("#btn-aferir");
+    const saida = $("#saida-afericao");
+    botao.disabled = true;
+    saida.innerHTML = '<div class="esqueleto" style="height:12px;margin-top:16px"></div>';
+    try {
+      const dados = await window.API.afericao();
+      const areas = Object.entries(dados.por_area || {})
+        .sort(([a], [b]) => a.localeCompare(b));
+
+      saida.innerHTML = `
+        <div class="resumo-afericao ${dados.taxa === 100 ? "pleno" : "parcial"}">
+          <b>${dados.acertos}/${dados.total}</b>
+          <span>${dados.taxa}% dos casos de referência</span>
+        </div>
+        <div class="medidor" style="margin-top:14px">
+          ${areas.map(([area, d]) => `
+            <div class="medidor-linha">
+              <span class="rotulo">${escapar(area)}</span>
+              <span class="medidor-barra">
+                <i class="${faixa(d.taxa / 100)}" style="width:${d.taxa}%"></i>
+              </span>
+              <span class="valor">${d.acertos}/${d.total}</span>
+            </div>`).join("")}
+        </div>
+        ${(dados.falhas || []).length ? `
+          <h3 style="font-size:13px;margin:18px 0 8px;color:var(--rosa)">
+            ${dados.falhas.length} caso(s) errado(s)</h3>
+          ${dados.falhas.map((f) => `
+            <div class="achado-gramatical erro">
+              <div class="achado-topo">
+                <span class="marca-topico">${escapar(f.area)}</span>
+                <b>${escapar(f.entrada)}</b>
+              </div>
+              <p>esperado <b>${escapar(f.esperado)}</b>, obtido
+                 <b>${escapar(f.obtido)}</b>${f.porque ? ` — ${escapar(f.porque)}` : ""}</p>
+            </div>`).join("")}`
+          : '<p style="margin-top:14px;font-size:13.4px;color:var(--jade-300)">'
+            + "Todos os casos de referência passaram.</p>"}`;
+    } catch (erro) {
+      saida.innerHTML = "";
+      avisar(erro.message, "erro");
+    } finally {
+      botao.disabled = false;
+    }
+  }
+
+  /* ====================================================================
+     Paleta de comandos (Ctrl/Cmd + K)
+     ==================================================================== */
+
+  /* Com nove seções, procurar a aba certa no olho custa mais que digitar o
+     nome dela. A paleta também dá acesso a ações que estão dentro das abas. */
+  const COMANDOS = [
+    { icone: "🔍", titulo: "Pesquisar nas bases", aba: "pesquisar",
+      termos: "buscar procurar fontes wikipedia artigo pergunta",
+      foco: "#entrada-pergunta" },
+    { icone: "🎓", titulo: "Modo tutor", aba: "tutor",
+      termos: "escada ajuda pista socratico dica questao foto imagem",
+      foco: "#tut-enunciado" },
+    { icone: "∑", titulo: "Resolver problema de matemática", aba: "matematica",
+      termos: "equacao calculo algebra ita ime verificar",
+      foco: "#mat-enunciado" },
+    { icone: "∑", titulo: "Gerar questão no padrão ITA/IME", aba: "matematica",
+      termos: "criar questao objetiva distrator gabarito", acao: "gerarQuestao" },
+    { icone: "T", titulo: "Analisar frase (crase, regência…)", aba: "gramatica",
+      termos: "gramatica portugues crase regencia colocacao concordancia frase",
+      foco: "#gram-frase" },
+    { icone: "T", titulo: "Consultar regência de um verbo", aba: "gramatica",
+      termos: "verbo regencia assistir visar implicar sentido", foco: "#gram-verbo" },
+    { icone: "↻", titulo: "Revisar cartões de hoje", aba: "revisao",
+      termos: "flashcard repeticao espacada sm2 baralho memorizar" },
+    { icone: "📖", titulo: "Minha biblioteca de livros", aba: "biblioteca",
+      termos: "livro pdf epub indexar catalogo acervo" },
+    { icone: "📅", titulo: "Montar plano de estudo", aba: "plano",
+      termos: "cronograma semanas sessoes planejar", foco: "#plano-tema" },
+    { icone: "🕐", titulo: "Histórico de pesquisas", aba: "historico",
+      termos: "anterior salvo antigas" },
+    { icone: "🗄", titulo: "Bases de dados consultadas", aba: "fontes",
+      termos: "fontes wikipedia arxiv pubmed openalex catalogo" },
+    { icone: "✓", titulo: "Aferir os motores", aba: "fontes",
+      termos: "afericao teste acerto qualidade verificar correto gabarito",
+      acao: "aferir" },
+    { icone: "◐", titulo: "Alternar tema claro/escuro", acao: "tema",
+      termos: "cor escuro claro noite dia aparencia" },
+  ];
+
+  let paletaSelecionada = 0;
+  let paletaFiltrada = COMANDOS;
+
+  function ligarPaleta() {
+    const paleta = $("#paleta");
+    const entrada = $("#paleta-entrada");
+
+    $(".paleta-fundo", paleta).addEventListener("click", fecharPaleta);
+    entrada.addEventListener("input", () => filtrarPaleta(entrada.value));
+    entrada.addEventListener("keydown", (evento) => {
+      if (evento.key === "Escape") { fecharPaleta(); return; }
+      if (evento.key === "ArrowDown" || evento.key === "ArrowUp") {
+        evento.preventDefault();
+        const passo = evento.key === "ArrowDown" ? 1 : -1;
+        const total = paletaFiltrada.length || 1;
+        paletaSelecionada = (paletaSelecionada + passo + total) % total;
+        desenharPaleta();
+      } else if (evento.key === "Enter") {
+        evento.preventDefault();
+        executarComando(paletaFiltrada[paletaSelecionada]);
+      }
+    });
+  }
+
+  function abrirPaleta() {
+    const paleta = $("#paleta");
+    paleta.hidden = false;
+    $("#paleta-entrada").value = "";
+    filtrarPaleta("");
+    $("#paleta-entrada").focus();
+  }
+
+  function fecharPaleta() {
+    $("#paleta").hidden = true;
+  }
+
+  /** Pontua um comando contra o que foi digitado.
+      Casar o INÍCIO de uma palavra vale muito mais que casar no meio: digitar
+      "cra" deve trazer "crase", não "socrático". */
+  function pontuarComando(comando, alvo) {
+    const titulo = comando.titulo.toLowerCase();
+    const termos = `${comando.termos} ${comando.aba || ""}`.toLowerCase();
+    const comecaPalavra = (texto) =>
+      texto.split(/[\s/,()]+/).some((palavra) => palavra.startsWith(alvo));
+
+    let pontos = 0;
+    if (titulo.startsWith(alvo)) pontos += 200;
+    if (comecaPalavra(titulo)) pontos += 100;
+    if (comecaPalavra(termos)) pontos += 50;
+    if (titulo.includes(alvo)) pontos += 10;
+    if (termos.includes(alvo)) pontos += 5;
+    return pontos;
+  }
+
+  function filtrarPaleta(termo) {
+    const alvo = termo.trim().toLowerCase();
+    if (!alvo) {
+      paletaFiltrada = COMANDOS;
+    } else {
+      paletaFiltrada = COMANDOS
+        .map((comando) => ({ comando, pontos: pontuarComando(comando, alvo) }))
+        .filter((item) => item.pontos > 0)
+        .sort((a, b) => b.pontos - a.pontos)
+        .map((item) => item.comando);
+    }
+    paletaSelecionada = 0;
+    desenharPaleta();
+  }
+
+  function desenharPaleta() {
+    const lista = $("#paleta-lista");
+    if (!paletaFiltrada.length) {
+      lista.innerHTML = '<li class="paleta-vazia">Nada encontrado por aqui.</li>';
+      return;
+    }
+    lista.innerHTML = paletaFiltrada.map((c, i) => `
+      <li class="paleta-item" role="option" data-indice="${i}"
+          aria-selected="${i === paletaSelecionada}">
+        <span class="icone">${c.icone}</span>
+        <span>${escapar(c.titulo)}</span>
+        ${c.aba ? `<small>${escapar(c.aba)}</small>` : ""}
+      </li>`).join("");
+
+    $$(".paleta-item", lista).forEach((item) => {
+      item.addEventListener("click", () =>
+        executarComando(paletaFiltrada[Number(item.dataset.indice)]));
+    });
+    const ativo = $('.paleta-item[aria-selected="true"]', lista);
+    if (ativo) ativo.scrollIntoView({ block: "nearest" });
+  }
+
+  function executarComando(comando) {
+    if (!comando) return;
+    fecharPaleta();
+    if (comando.aba) trocarAba(comando.aba);
+    if (comando.acao === "tema") { alternarTema(); return; }
+    if (comando.acao === "aferir") {
+      setTimeout(() => { const b = $("#btn-aferir"); if (b) b.click(); }, 150);
+      return;
+    }
+    if (comando.acao === "gerarQuestao") {
+      setTimeout(() => { const b = $("#mat-criar"); if (b) b.click(); }, 120);
+      return;
+    }
+    if (comando.foco) {
+      setTimeout(() => { const alvo = $(comando.foco); if (alvo) alvo.focus(); }, 140);
+    }
   }
 
   document.addEventListener("DOMContentLoaded", iniciar);
