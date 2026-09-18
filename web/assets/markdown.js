@@ -14,8 +14,26 @@
       .replace(/'/g, "&#39;");
   }
 
+  /* Fórmulas em $...$ e $$...$$ precisam atravessar o formatador intactas:
+     sem isso, `r_1` e `r_2` na mesma linha viram itálico e a fórmula quebra. */
+  const RE_MATEMATICA = /(\$\$[^$]+\$\$|\$[^$\n]+\$)/g;
+
+  function protegerMatematica(texto, cofre) {
+    return texto.replace(RE_MATEMATICA, (formula) => {
+      const marca = `\u0000M${cofre.length}\u0000`;
+      cofre.push(formula);
+      return marca;
+    });
+  }
+
+  function restaurarMatematica(texto, cofre) {
+    return texto.replace(/\u0000M(\d+)\u0000/g, (_, indice) => cofre[Number(indice)]);
+  }
+
   /* Formatação dentro de uma linha: negrito, itálico, código, links, citações */
-  function embutido(texto, comCitacoes) {
+  function embutido(textoOriginal, comCitacoes) {
+    const cofre = [];
+    const texto = protegerMatematica(textoOriginal, cofre);
     let saida = texto
       .replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`)
       .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
@@ -34,7 +52,7 @@
         }).join("")
       );
     }
-    return saida;
+    return restaurarMatematica(saida, cofre);
   }
 
   function renderizar(markdown, opcoes) {

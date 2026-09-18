@@ -11,6 +11,10 @@ afirmação, se a fonte citada sustenta o que foi dito**. Em cima do que você
 acabou de ler, ele gera flashcards, quizzes e um plano de estudo, e agenda as
 revisões com repetição espaçada.
 
+Para matemática há um motor separado, no padrão ITA/IME: ele **resolve com
+álgebra computacional**, verifica o resultado por um caminho independente e
+**critica a própria solução** antes de entregá-la.
+
 Feito em **Python** (FastAPI, `asyncio`) com interface web sem etapa de build.
 
 ---
@@ -104,6 +108,62 @@ Python" vai para Stack Exchange e arXiv. Você pode sobrescrever a escolha
 marcando as bases na própria busca.
 
 ---
+
+## Motor matemático
+
+Um modelo de linguagem escreve matemática convincente e, às vezes, errada. O
+que torna a resolução confiável não é o texto prometer que verificou — é um
+verificador independente conferir. O Núcleo usa o SymPy, um sistema de álgebra
+computacional, como fonte de verdade.
+
+```
+enunciado
+  │
+  ├─ 1. diagnóstico: assunto, dificuldade (1 a 4) e o que isso muda
+  ├─ 2. leitura simbólica: extrai as equações da prosa e resolve o que dá
+  ├─ 3. exploração de estratégias    (só nos níveis 3 e 4)
+  ├─ 4. resolução, com as estratégias e o protocolo daquele assunto
+  ├─ 5. confronto: a álgebra resolve por conta própria e compara
+  ├─ 6. crítica interna: caça salto lógico, caso perdido, divisão por zero
+  └─ 7. correção, se a crítica encontrou algo que importa
+```
+
+**A profundidade é adaptativa.** "Calcule a derivada de x²" sai em uma passada.
+"Determine todos os valores de m para que a equação tenha duas raízes distintas
+e positivas" passa por escolha de estratégia, verificação independente e
+crítica. Gastar três passes numa equação do segundo grau é desperdício;
+resolver um problema de ITA com uma única passada é imprudência.
+
+**O que a verificação simbólica realmente checa:**
+
+| Teste | O que pega |
+|---|---|
+| substituição | raiz que não zera a equação original |
+| domínio | raiz estranha: anula denominador, radicando negativo, log de zero |
+| sistema | solução que satisfaz uma equação e viola outra |
+| identidade | igualdade falsa, testada em 12 pontos aleatórios |
+| intervalo | probabilidade fora de [0, 1] |
+| confronto | a resposta afirmada não contém todas as raízes |
+
+**Funciona sem chave de API.** Nesse modo, o SymPy resolve e verifica sozinho:
+você não recebe a explicação didática, mas recebe matemática correta e
+conferida, o que é bem mais útil do que um texto plausível sem conferência.
+
+**Modo socrático.** Em vez da resolução, você pede pistas. São quatro níveis:
+a primeira aponta só onde olhar, a última desenvolve quase tudo e deixa o
+fecho para você. A resposta final nunca aparece nesse modo.
+
+**Gerador de questões.** Cada distrator corresponde a um erro real e conhecido
+— sinal trocado, caso esquecido, raiz estranha aceita, fórmula aplicada fora da
+hipótese — e o erro é mostrado depois que você responde. Nas questões de molde
+o gabarito é **calculado pelo SymPy**, não escrito à mão, então é correto por
+construção. Nas criadas pelo modelo, o gabarito passa por conferência antes de
+ser entregue.
+
+**Segurança da entrada.** O enunciado do usuário nunca chega a um `eval` livre.
+Há um filtro de caracteres, uma lista de termos proibidos, um espaço de nomes
+sem `builtins` e limites contra fatorial gigante e torre de potências. Há teste
+para cada uma dessas portas.
 
 ## Como a resposta é construída
 
@@ -207,6 +267,12 @@ app/
   consulta.py        intenção, ponte bilíngue, realimentação de relevância
   ranking.py         BM25 + MMR + pesos de credibilidade e de intenção
   cache.py           cache LRU com expiração
+  matematica/
+    classificacao.py assunto, dificuldade e profundidade adaptativa
+    simbolico.py     álgebra computacional: leitura segura, solução, verificação
+    prompts.py       resolvedor, crítico, socrático e criador de questões
+    resolucao.py     orquestração das fases e do ciclo crítica → correção
+    criacao.py       geradores paramétricos com gabarito calculado
   banco.py           SQLite: histórico, baralhos, cartões, SM-2
   livros.py          extração de texto de PDF, EPUB, TXT, Markdown e HTML
   biblioteca.py      índice FTS5 dos seus livros
@@ -265,17 +331,35 @@ curl -X POST localhost:8000/api/biblioteca/catalogo \
   -H 'Content-Type: application/json' -d '{"chaves": ["calculo"]}'
 ```
 
+```bash
+# resolver com verificação simbólica
+curl -X POST localhost:8000/api/matematica/resolver \
+  -H 'Content-Type: application/json' \
+  -d '{"enunciado": "Resolva a equação x^2 - 5x + 6 = 0."}'
+
+# pedir uma pista em vez da resposta
+curl -X POST localhost:8000/api/matematica/pista \
+  -H 'Content-Type: application/json' \
+  -d '{"enunciado": "Resolva x^2 - 5x + 6 = 0.", "nivel": 1}'
+
+# conferir a sua resposta contra a álgebra
+curl -X POST localhost:8000/api/matematica/conferir \
+  -H 'Content-Type: application/json' \
+  -d '{"enunciado": "Resolva x^2 - 5x + 6 = 0.", "resposta": "x = 2"}'
+```
+
 Rotas principais: `/api/pesquisar`, `/api/pesquisar/fluxo`, `/api/flashcards`,
 `/api/quiz`, `/api/plano`, `/api/explicar`, `/api/historico`, `/api/baralhos`,
 `/api/revisao`, `/api/estatisticas`, `/api/fontes`, `/api/biblioteca`,
-`/api/saude`.
+`/api/matematica/resolver`, `/api/matematica/pista`, `/api/matematica/conferir`,
+`/api/matematica/criar`, `/api/saude`.
 
 ---
 
 ## Testes
 
 ```bash
-python -m pytest        # 163 testes, ~4 segundos
+python -m pytest        # 258 testes, ~7 segundos
 ```
 
 Os testes simulam as respostas de todas as APIs com `httpx.MockTransport`,
@@ -284,7 +368,9 @@ de texto, ranqueamento, cada conector (incluindo queda de rede, HTTP 429 e
 resposta malformada), extração de PDF/EPUB/Markdown, o índice da biblioteca
 (inclusive tentativas de injeção na sintaxe do FTS5), classificação de
 intenção, tradução, realimentação de relevância, checagem de fundamentação, o
-pipeline completo, o cache, o algoritmo SM-2 e todos os endpoints HTTP.
+pipeline completo, o cache, o algoritmo SM-2, a leitura segura de expressões
+matemáticas (incluindo tentativas de injeção de código), a resolução simbólica,
+o diagnóstico de dificuldade, os geradores de questão e todos os endpoints HTTP.
 
 ---
 
@@ -311,5 +397,13 @@ clique num flashcard para virar · o botão no rodapé alterna tema claro e escu
 - Indexe apenas livros que você tem o direito de usar. O catálogo aberto só
   traz material de licença livre ou em domínio público, com a licença
   registrada junto de cada livro.
+- A verificação simbólica só alcança o que consegue ler como equação. Em
+  problema de geometria, contagem ou demonstração, ela não se aplica — e o
+  Núcleo diz isso em vez de fingir que conferiu.
+- Verificação não é demonstração. O motor confirmar uma identidade em doze
+  pontos aleatórios é evidência forte, não prova. Quando o enunciado pede
+  demonstração, o que vale é o argumento escrito.
+- O gerador de questões cobre seis assuntos em modo paramétrico. Fora deles,
+  a questão depende do modelo e a conferência é apenas estrutural.
 - As APIs públicas têm limites de requisição. O cache de 6 horas existe
   justamente para não abusar delas.

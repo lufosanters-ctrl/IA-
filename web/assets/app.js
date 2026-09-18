@@ -21,6 +21,10 @@
     modeloDisponivel: false,
     livros: [],
     catalogo: [],
+    nivelAluno: "intermediario",
+    nivelPista: 0,
+    topicosMat: [],
+    topicoMat: "",
   };
 
   const NOMES_FONTE = {};
@@ -58,6 +62,7 @@
     if (nome === "historico") carregarHistorico();
     if (nome === "revisao") carregarBaralhos();
     if (nome === "biblioteca") carregarBiblioteca();
+    if (nome === "matematica") carregarTopicosMat();
   }
 
   function ligarSegmentado(seletor, aoEscolher) {
@@ -161,6 +166,7 @@
     });
 
     ligarEnvioDeLivros();
+    ligarMatematica();
     $("#btn-novo-baralho").addEventListener("click", criarBaralho);
     $("#btn-iniciar-revisao").addEventListener("click", iniciarRevisao);
 
@@ -1137,6 +1143,443 @@
         } catch (erro) { avisar(erro.message, "erro"); }
       });
     });
+  }
+
+
+  /* ====================================================================
+     Motor matemático
+     ==================================================================== */
+
+  /* Conversões de LaTeX para texto, usadas só quando o KaTeX não carrega
+     (máquina offline, CDN bloqueada). Não é um renderizador: é o suficiente
+     para a fórmula continuar legível em vez de virar uma sopa de contrabarras. */
+  const LATEX_PARA_TEXTO = [
+    [/\\left|\\right|\\,|\\!|\\;/g, ""],
+    /* sqrt antes de frac: \frac{81 \sqrt{2}}{2} tem chave aninhada, e o
+       padrão de frac só casa conteúdo sem chaves. */
+    [/\\sqrt\s*\[([^\]]*)\]\s*\{([^{}]*)\}/g, "raiz$1($2)"],
+    [/\\sqrt\s*\{([^{}]*)\}/g, "√($1)"],
+    [/\\d?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, "($1)/($2)"],
+    [/\\mathrm\s*\{([^{}]*)\}/g, "$1"],
+    [/\^\{([^{}]*)\}/g, "^$1"],
+    [/_\{([^{}]*)\}/g, "_$1"],
+    [/\\in\b/g, "∈"], [/\\cdot\b/g, "·"], [/\\times\b/g, "×"],
+    [/\\pi\b/g, "π"], [/\\theta\b/g, "θ"], [/\\Delta\b/g, "Δ"],
+    [/\\alpha\b/g, "α"], [/\\beta\b/g, "β"], [/\\lambda\b/g, "λ"],
+    [/\\infty\b/g, "∞"], [/\\varnothing\b/g, "∅"], [/\\emptyset\b/g, "∅"],
+    [/\\leq\b/g, "≤"], [/\\geq\b/g, "≥"], [/\\neq\b/g, "≠"],
+    [/\\pm\b/g, "±"], [/\\approx\b/g, "≈"], [/\\cup\b/g, "∪"], [/\\cap\b/g, "∩"],
+    [/\\sen\b|\\sin\b/g, "sen"], [/\\cos\b/g, "cos"], [/\\tan\b|\\tg\b/g, "tg"],
+    [/\\log\b/g, "log"], [/\\ln\b/g, "ln"],
+    [/\\\{/g, "{"], [/\\\}/g, "}"], [/\\\\/g, " "],
+    [/\s{2,}/g, " "],
+  ];
+
+  function textoDeLatex(formula) {
+    let saida = formula.replace(/^\$\$?|\$\$?$/g, "");
+    // Três passadas: uma fração dentro de outra precisa que a interna
+    // desapareça antes de a externa poder casar.
+    for (let passada = 0; passada < 3; passada += 1) {
+      LATEX_PARA_TEXTO.forEach(([de, para]) => { saida = saida.replace(de, para); });
+    }
+    return saida.trim();
+  }
+
+  /** Substitui as fórmulas por texto legível quando o KaTeX não está presente. */
+  function degradarFormulas(raiz) {
+    const percorrer = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT);
+    const alvos = [];
+    while (percorrer.nextNode()) {
+      if (/\$[^$]/.test(percorrer.currentNode.nodeValue)) alvos.push(percorrer.currentNode);
+    }
+    alvos.forEach((no) => {
+      no.nodeValue = no.nodeValue.replace(
+        /(\$\$[^$]+\$\$|\$[^$\n]+\$)/g, (f) => textoDeLatex(f)
+      );
+    });
+  }
+
+  /** Renderiza as fórmulas com KaTeX; sem ele, converte para texto legível. */
+  function renderizarFormulas(raiz) {
+    if (typeof window.renderMathInElement !== "function") {
+      degradarFormulas(raiz);
+      return;
+    }
+    try {
+      window.renderMathInElement(raiz, {
+        delimiters: [
+          { left: "$$", right: "$$", display: true },
+          { left: "$", right: "$", display: false },
+          { left: "\\[", right: "\\]", display: true },
+          { left: "\\(", right: "\\)", display: false },
+        ],
+        throwOnError: false,
+        ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"],
+      });
+    } catch (_) { /* fórmula malformada não pode derrubar a página */ }
+  }
+
+  function markdownComFormulas(texto) {
+    return window.Markdown.renderizar(texto || "", { citacoes: false });
+  }
+
+  function ligarMatematica() {
+    ligarSegmentado("#seg-nivel-aluno", (v) => { estado.nivelAluno = v; });
+
+    const enunciado = $("#mat-enunciado");
+    let temporizador = null;
+    enunciado.addEventListener("input", () => {
+      estado.nivelPista = 0;
+      clearTimeout(temporizador);
+      temporizador = setTimeout(diagnosticar, 700);
+    });
+
+    $("#mat-resolver").addEventListener("click", resolverMatematica);
+    $("#mat-pista").addEventListener("click", pedirPista);
+    $("#mat-conferir").addEventListener("click", conferirResposta);
+    $("#mat-criar").addEventListener("click", gerarQuestao);
+  }
+
+  function enunciadoAtual() {
+    const texto = $("#mat-enunciado").value.trim();
+    if (texto.length < 3) {
+      avisar("Escreva o enunciado do problema primeiro.", "erro");
+      return "";
+    }
+    return texto;
+  }
+
+  /* --- diagnóstico ao vivo, sem chamar o modelo --- */
+  async function diagnosticar() {
+    const texto = $("#mat-enunciado").value.trim();
+    const painel = $("#mat-diagnostico");
+    if (texto.length < 12) { painel.hidden = true; return; }
+    try {
+      const dados = await window.API.matDiagnostico({ enunciado: texto });
+      const d = dados.diagnostico;
+      const nivel = d.dificuldade;
+      const classe = nivel >= 4 ? "forte" : nivel === 3 ? "quente" : "";
+      const barras = [1, 2, 3, 4]
+        .map((i) => `<i class="${i <= nivel ? "aceso " + classe : ""}"></i>`).join("");
+      const equacoes = (dados.analise.equacoes || []).length;
+
+      painel.innerHTML = `
+        <span class="rotulo-diag">diagnóstico</span>
+        <span class="pilula violeta">${escapar(d.topico_nome)}</span>
+        <span class="medidor-nivel" title="${escapar(d.dificuldade_descricao)}">
+          ${barras}
+        </span>
+        <span class="pilula">${escapar(d.dificuldade_nome)}</span>
+        ${d.pede_demonstracao ? '<span class="pilula ambar">pede demonstração</span>' : ""}
+        ${equacoes ? `<span class="pilula jade">${equacoes} equação(ões) lida(s)</span>` : ""}
+        ${(d.sinais || []).slice(0, 2)
+          .map((s) => `<span class="pilula">${escapar(s)}</span>`).join("")}`;
+      painel.hidden = false;
+    } catch (_) { painel.hidden = true; }
+  }
+
+  function trilhaDePasses(passes) {
+    if (!passes || !passes.length) return "";
+    return `<div class="trilha-passes">${passes
+      .map((p) => `<span class="passe">${escapar(p)}</span>`)
+      .join('<span class="seta">→</span>')}</div>`;
+  }
+
+  function listaDeChecagens(checagens) {
+    if (!checagens || !checagens.length) return "";
+    return checagens.map((c) => `
+      <div class="checagem ${c.passou ? "passou" : "falhou"}">
+        <span class="marca-check">${c.passou ? "✓" : "✕"}</span>
+        <span><b>${escapar(c.nome)}</b><br>
+          <span class="detalhe-check">${escapar(c.detalhe)}</span></span>
+      </div>`).join("");
+  }
+
+  function blocoEstrategias(estrategias) {
+    const caminhos = (estrategias && estrategias.caminhos) || [];
+    if (!caminhos.length) return "";
+    const escolhido = estrategias.escolhido || "";
+    return `
+      <details class="fase">
+        <summary>Fase de exploração — ${caminhos.length} caminhos considerados</summary>
+        <div class="corpo-fase">
+          ${estrategias.estrutura_escondida ? `
+            <p><b>Estrutura identificada:</b> ${escapar(estrategias.estrutura_escondida)}</p>` : ""}
+          ${caminhos.map((c) => {
+            const eEscolhido = c.nome && escolhido && c.nome.trim() === escolhido.trim();
+            return `
+            <div class="caminho ${eEscolhido ? "escolhido" : ""}">
+              ${eEscolhido ? '<span class="selo-escolhido">escolhido</span>' : ""}
+              <b>${escapar(c.nome || "")}</b>
+              <div>${escapar(c.descricao || "")}</div>
+              ${c.risco ? `<div class="risco">Onde pode travar: ${escapar(c.risco)}</div>` : ""}
+            </div>`;
+          }).join("")}
+          ${estrategias.por_que ? `<p><b>Por quê:</b> ${escapar(estrategias.por_que)}</p>` : ""}
+        </div>
+      </details>`;
+  }
+
+  function blocoCritica(critica) {
+    if (!critica || !Object.keys(critica).length) return "";
+    const problemas = critica.problemas || [];
+    const veredito = critica.veredito || "";
+    const rotulo = { correta: "nada a corrigir", corrigir: "correções aplicadas",
+                     refazer: "solução refeita" }[veredito] || veredito;
+    return `
+      <details class="fase" ${problemas.length ? "open" : ""}>
+        <summary>Crítica interna — ${escapar(rotulo)}</summary>
+        <div class="corpo-fase">
+          ${problemas.length
+            ? problemas.map((p) => `
+              <div class="problema-critico ${escapar(p.gravidade || "menor")}">
+                <b>${escapar(p.onde || "")}</b> — ${escapar(p.qual || "")}
+                ${p.como_corrigir ? `<br><i>Correção: ${escapar(p.como_corrigir)}</i>` : ""}
+              </div>`).join("")
+            : "<p>A revisão não encontrou salto lógico, caso perdido nem divisão por zero.</p>"}
+          ${critica.comentario ? `<p>${escapar(critica.comentario)}</p>` : ""}
+        </div>
+      </details>`;
+  }
+
+  async function resolverMatematica() {
+    const texto = enunciadoAtual();
+    if (!texto) return;
+    const botao = $("#mat-resolver");
+    const saida = $("#mat-saida");
+    botao.disabled = true;
+    saida.innerHTML = `
+      <div class="cartao" style="margin-top:16px">
+        <div class="esqueleto" style="height:15px;width:45%"></div>
+        <div class="esqueleto" style="height:12px;margin-top:14px"></div>
+        <div class="esqueleto" style="height:12px;margin-top:8px;width:82%"></div>
+        <div class="esqueleto" style="height:12px;margin-top:8px;width:60%"></div>
+      </div>`;
+    try {
+      const r = await window.API.matResolver({
+        enunciado: texto,
+        tentativa: $("#mat-tentativa").value,
+        nivel_aluno: estado.nivelAluno,
+      });
+      desenharResolucao(r);
+    } catch (erro) {
+      saida.innerHTML = "";
+      avisar(erro.message, "erro");
+    } finally {
+      botao.disabled = false;
+    }
+  }
+
+  function desenharResolucao(r) {
+    const d = r.diagnostico;
+    const checagens = (r.analise.checagens || []).concat(r.confronto || []);
+    const veredito = r.verificado
+      ? '<div class="veredito ok">✓ Verificação independente confirmou o resultado</div>'
+      : r.tem_alerta
+        ? '<div class="veredito atencao">⚠ A verificação não fechou — leia as checagens</div>'
+        : "";
+
+    $("#mat-saida").innerHTML = `
+      <div class="cartao" style="margin-top:16px">
+        <div class="pilulas" style="margin-bottom:12px">
+          <span class="pilula ${r.modo === "neural" ? "jade" : "ambar"}">
+            ${r.modo === "neural" ? "resolução explicada" : "modo simbólico"}</span>
+          <span class="pilula violeta">${escapar(d.topico_nome)}</span>
+          <span class="pilula">nível ${d.dificuldade} · ${escapar(d.dificuldade_nome)}</span>
+          <span class="pilula">${((r.duracao_ms || 0) / 1000).toFixed(1)}s</span>
+        </div>
+        ${trilhaDePasses(r.passes)}
+        ${blocoEstrategias(r.estrategias)}
+        <article class="markdown" id="mat-texto">${markdownComFormulas(r.texto)}</article>
+        ${r.aviso ? `<div class="aviso">${escapar(r.aviso)}</div>` : ""}
+      </div>
+
+      <div class="cartao" style="margin-top:14px">
+        <h2 class="titulo-secao">
+          <svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.4 3.4 8.5 8 9.5 4.6-1 8-5.1 8-9.5V6l-8-3z"/><path d="m9 12 2 2 4-4"/></svg>
+          Verificação independente
+        </h2>
+        ${veredito}
+        ${checagens.length
+          ? listaDeChecagens(checagens)
+          : `<p style="font-size:13.4px;color:var(--texto-2);margin:0 0 10px">
+               Nenhuma checagem automática se aplicou a este enunciado.
+               Confira manualmente:</p>
+             <ul style="font-size:13.4px;color:var(--texto-2);margin:0;padding-left:20px">
+               ${(d.verificacoes || []).map((v) => `<li>${escapar(v)}</li>`).join("")}
+             </ul>`}
+        ${(r.analise.observacoes || []).map((o) =>
+          `<p style="font-size:12.8px;color:var(--texto-3);margin:8px 0 0">${escapar(o)}</p>`).join("")}
+        ${blocoCritica(r.critica)}
+      </div>`;
+
+    renderizarFormulas($("#mat-saida"));
+  }
+
+  async function pedirPista() {
+    const texto = enunciadoAtual();
+    if (!texto) return;
+    estado.nivelPista = Math.min(4, estado.nivelPista + 1);
+    const botao = $("#mat-pista");
+    botao.disabled = true;
+    try {
+      const p = await window.API.matPista({
+        enunciado: texto,
+        tentativa: $("#mat-tentativa").value,
+        nivel: estado.nivelPista,
+      });
+      const restam = 4 - p.nivel;
+      $("#mat-saida").innerHTML = `
+        <div class="pista">
+          <div class="pista-topo">
+            <span class="pista-nivel">pista ${p.nivel} de 4</span>
+            <span class="pilula ${p.modo === "neural" ? "jade" : "ambar"}">
+              ${p.modo === "neural" ? "socrático" : "estrutural"}</span>
+          </div>
+          <article class="markdown">${markdownComFormulas(p.texto)}</article>
+          <div class="mais-pista">
+            ${restam > 0
+              ? `<button class="botao-secundario" id="mat-mais-pista">
+                   Ainda travei — próxima pista (${restam} restante${restam > 1 ? "s" : ""})
+                 </button>`
+              : `<button class="botao-primario" id="mat-resolver-agora">
+                   Ver a resolução completa</button>`}
+          </div>
+        </div>`;
+      renderizarFormulas($("#mat-saida"));
+      const proxima = $("#mat-mais-pista");
+      if (proxima) proxima.addEventListener("click", pedirPista);
+      const resolverAgora = $("#mat-resolver-agora");
+      if (resolverAgora) resolverAgora.addEventListener("click", resolverMatematica);
+    } catch (erro) {
+      avisar(erro.message, "erro");
+    } finally {
+      botao.disabled = false;
+    }
+  }
+
+  async function conferirResposta() {
+    const texto = enunciadoAtual();
+    if (!texto) return;
+    const minha = prompt("Qual é a sua resposta? (o sistema algébrico vai conferir)");
+    if (!minha || !minha.trim()) return;
+    try {
+      const r = await window.API.matConferir({ enunciado: texto, resposta: minha.trim() });
+      const checagens = (r.analise.checagens || []).concat(r.confronto || []);
+      const rotulo = {
+        confere: ['<div class="veredito ok">✓ Sua resposta confere com a álgebra</div>', "ok"],
+        nao_confere: ['<div class="veredito atencao">⚠ A álgebra não confirma sua resposta</div>', "erro"],
+        indeterminado: ['<div class="veredito atencao">Não consegui ler equação no enunciado para conferir automaticamente</div>', "ok"],
+      }[r.veredito] || ["", "ok"];
+
+      $("#mat-saida").innerHTML = `
+        <div class="cartao" style="margin-top:16px">
+          <h2 class="titulo-secao">Conferência da sua resposta</h2>
+          <p style="font-size:13.6px;color:var(--texto-2);margin:0 0 12px">
+            Você respondeu: <b>${escapar(minha.trim())}</b></p>
+          ${rotulo[0]}
+          ${listaDeChecagens(checagens)}
+          ${(r.analise.observacoes || []).map((o) =>
+            `<p style="font-size:12.8px;color:var(--texto-3);margin:8px 0 0">${escapar(o)}</p>`).join("")}
+        </div>`;
+      renderizarFormulas($("#mat-saida"));
+    } catch (erro) { avisar(erro.message, "erro"); }
+  }
+
+  async function carregarTopicosMat() {
+    if (estado.topicosMat.length) return;
+    try {
+      const dados = await window.API.matTopicos();
+      estado.topicosMat = dados.topicos || [];
+    } catch (erro) { avisar(erro.message, "erro"); return; }
+
+    const caixa = $("#mat-topicos");
+    caixa.innerHTML = estado.topicosMat
+      .filter((t) => t.gera_questao)
+      .map((t) => `<button class="ficha" data-topico="${escapar(t.chave)}">
+                     <span class="marcador"></span>${escapar(t.nome)}</button>`)
+      .join("");
+
+    $$("#mat-topicos .ficha").forEach((ficha) => {
+      ficha.addEventListener("click", () => {
+        const ja = ficha.classList.contains("ativa");
+        $$("#mat-topicos .ficha").forEach((f) => f.classList.remove("ativa"));
+        if (!ja) ficha.classList.add("ativa");
+        estado.topicoMat = ja ? "" : ficha.dataset.topico;
+      });
+    });
+  }
+
+  async function gerarQuestao() {
+    const botao = $("#mat-criar");
+    botao.disabled = true;
+    try {
+      const q = await window.API.matCriar({
+        topico: estado.topicoMat,
+        dificuldade: 3,
+        semente: Math.floor(Math.random() * 1e6),
+      });
+      desenharQuestao(q);
+    } catch (erro) {
+      avisar(erro.message, "erro");
+    } finally {
+      botao.disabled = false;
+    }
+  }
+
+  function desenharQuestao(q) {
+    const letras = ["A", "B", "C", "D", "E"];
+    $("#mat-questao").innerHTML = `
+      <div class="questao-gerada">
+        <div class="pilulas" style="margin-bottom:12px">
+          <span class="pilula ${q.origem === "neural" ? "jade" : "violeta"}">
+            ${q.origem === "neural" ? "criada pelo modelo" : "molde paramétrico"}</span>
+          <span class="pilula">nível ${q.dificuldade}</span>
+          ${(q.topicos || []).map((t) => `<span class="pilula">${escapar(t)}</span>`).join("")}
+          <span class="selo-gabarito ${q.conferida ? "" : "nao"}"
+                title="${escapar(q.observacao_da_conferencia || "")}">
+            ${q.conferida ? "✓ gabarito conferido" : "⚠ gabarito não conferido"}</span>
+        </div>
+        <div class="questao">
+          <p class="questao-enunciado"><span>${markdownComFormulas(q.enunciado)}</span></p>
+          <div class="alternativas">
+            ${q.alternativas.map((a, i) => `
+              <button class="alternativa" data-opcao="${i}">
+                <span class="letra">${letras[i]}</span>
+                <span>${markdownComFormulas(a)}</span>
+              </button>`).join("")}
+          </div>
+          <div class="explicacao" hidden>
+            ${q.ideia_central ? `<b>Ideia central:</b> ${markdownComFormulas(q.ideia_central)}` : ""}
+            ${q.solucao ? `<div style="margin-top:8px">${markdownComFormulas(q.solucao)}</div>` : ""}
+          </div>
+        </div>
+      </div>`;
+
+    const caixa = $("#mat-questao .questao");
+    $$(".alternativa", caixa).forEach((botao, indice) => {
+      botao.addEventListener("click", () => {
+        if (caixa.dataset.respondida) return;
+        caixa.dataset.respondida = "1";
+        $$(".alternativa", caixa).forEach((b, i) => {
+          b.disabled = true;
+          if (i === q.correta) b.classList.add("certa");
+          else if (i === indice) b.classList.add("errada");
+          const erro = (q.erros_dos_distratores || [])[i];
+          if (i !== q.correta && erro && erro !== "-") {
+            const nota = document.createElement("span");
+            nota.className = "erro-distrator";
+            nota.innerHTML = markdownComFormulas(erro);
+            $("span:last-child", b).appendChild(nota);
+          }
+        });
+        $(".explicacao", caixa).hidden = false;
+        renderizarFormulas(caixa);
+        avisar(indice === q.correta ? "Correto." : "Veja o erro que leva a cada alternativa.");
+      });
+    });
+
+    renderizarFormulas($("#mat-questao"));
   }
 
   document.addEventListener("DOMContentLoaded", iniciar);

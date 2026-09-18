@@ -726,3 +726,123 @@ code, pre, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
   .grade-catalogo, .grade-livros { grid-template-columns: 1fr; }
   .area-envio { padding: 26px 16px; }
 }
+
+/* ==========================================================================
+   Motor matemático
+   ========================================================================== */
+
+.campo textarea {
+  padding: 12px 14px; border: 1px solid var(--borda); border-radius: 12px;
+  background: color-mix(in srgb, var(--fundo) 55%, transparent);
+  color: var(--texto); font: inherit; font-size: 15px; line-height: 1.6;
+  resize: vertical; min-height: 70px; width: 100%;
+}
+.campo textarea:focus { outline: none; border-color: var(--jade-400); box-shadow: 0 0 0 3px color-mix(in srgb, var(--jade-400) 14%, transparent); }
+.campo textarea::placeholder { color: var(--texto-3); }
+
+.detalhe-tentativa { margin: 12px 0 4px; }
+.detalhe-tentativa summary { cursor: pointer; font-size: 13.4px; color: var(--texto-2); padding: 6px 0; list-style: none; display: flex; align-items: center; gap: 7px; }
+.detalhe-tentativa summary::before { content: "›"; display: inline-block; transition: transform var(--transicao); color: var(--jade-400); font-size: 17px; }
+.detalhe-tentativa[open] summary::before { transform: rotate(90deg); }
+.detalhe-tentativa summary::-webkit-details-marker { display: none; }
+.detalhe-tentativa summary small { color: var(--texto-3); font-size: 12.3px; }
+
+.mat-acoes { margin: 16px 0 0; flex-wrap: wrap; }
+.mat-acoes .segmentado { margin-left: auto; }
+
+/* ------------------------- painel de diagnóstico ----------------------- */
+.painel-diagnostico {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 14px; padding: 12px 14px; border-radius: var(--raio-sm);
+  background: color-mix(in srgb, var(--violeta) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--violeta) 20%, transparent);
+  animation: surgir .3s ease;
+}
+.painel-diagnostico .rotulo-diag { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--texto-3); margin-right: 2px; }
+
+.medidor-nivel { display: inline-flex; gap: 3px; align-items: center; }
+.medidor-nivel i { width: 16px; height: 5px; border-radius: 99px; background: var(--borda-forte); }
+.medidor-nivel i.aceso { background: var(--jade-400); }
+.medidor-nivel i.aceso.quente { background: var(--ambar); }
+.medidor-nivel i.aceso.forte { background: var(--rosa); }
+
+/* ------------------------------ passes -------------------------------- */
+.trilha-passes { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 14px; }
+.passe {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; border-radius: 99px; font-size: 11.5px; font-weight: 550;
+  background: color-mix(in srgb, var(--jade-400) 13%, transparent);
+  color: var(--jade-300); border: 1px solid color-mix(in srgb, var(--jade-400) 26%, transparent);
+}
+.trilha-passes .seta { color: var(--texto-3); font-size: 11px; }
+
+/* --------------------------- caixa de fases --------------------------- */
+.fase {
+  margin-top: 14px; border: 1px solid var(--borda); border-radius: var(--raio);
+  background: var(--superficie-solida); overflow: hidden;
+}
+.fase > summary {
+  display: flex; align-items: center; gap: 9px; padding: 12px 16px;
+  cursor: pointer; font-size: 13.4px; font-weight: 550; color: var(--texto-2);
+  list-style: none;
+}
+.fase > summary::-webkit-details-marker { display: none; }
+.fase > summary::before { content: "›"; color: var(--jade-400); font-size: 17px; transition: transform var(--transicao); }
+.fase[open] > summary::before { transform: rotate(90deg); }
+.fase > summary:hover { color: var(--texto); background: var(--superficie-alta); }
+.fase .corpo-fase { padding: 4px 16px 16px; font-size: 13.8px; line-height: 1.65; color: var(--texto-2); }
+.fase .corpo-fase ul { margin: 6px 0; padding-left: 20px; }
+.fase .corpo-fase li { margin-bottom: 5px; }
+
+.caminho { padding: 10px 12px; border-radius: var(--raio-sm); border: 1px solid var(--borda); margin-bottom: 7px; }
+.caminho.escolhido { border-color: var(--jade-400); background: color-mix(in srgb, var(--jade-500) 9%, transparent); }
+.caminho b { display: block; font-size: 13.6px; color: var(--texto); margin-bottom: 3px; }
+.caminho .risco { font-size: 12.3px; color: var(--texto-3); }
+.caminho .selo-escolhido { float: right; font-size: 10.5px; padding: 1px 8px; border-radius: 99px; background: var(--jade-400); color: #04120c; font-weight: 700; }
+
+/* ----------------------------- checagens ------------------------------ */
+.checagem {
+  display: flex; align-items: flex-start; gap: 9px; padding: 9px 12px;
+  border-radius: var(--raio-sm); margin-bottom: 6px; font-size: 13.2px;
+  border: 1px solid var(--borda); background: var(--superficie-solida);
+}
+.checagem.passou { border-color: color-mix(in srgb, var(--jade-400) 32%, transparent); background: color-mix(in srgb, var(--jade-500) 8%, transparent); }
+.checagem.falhou { border-color: color-mix(in srgb, var(--rosa) 34%, transparent); background: color-mix(in srgb, var(--rosa) 8%, transparent); }
+.checagem .marca-check { flex: none; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 5px; font-size: 11px; font-weight: 800; }
+.checagem.passou .marca-check { background: var(--jade-400); color: #04120c; }
+.checagem.falhou .marca-check { background: var(--rosa); color: #fff; }
+.checagem b { color: var(--texto); font-weight: 600; }
+.checagem .detalhe-check { color: var(--texto-2); }
+
+.problema-critico { border-left: 3px solid var(--rosa); padding: 9px 12px; margin-bottom: 7px; background: color-mix(in srgb, var(--rosa) 7%, transparent); border-radius: 0 var(--raio-sm) var(--raio-sm) 0; font-size: 13.2px; }
+.problema-critico.serio { border-left-color: var(--ambar); background: color-mix(in srgb, var(--ambar) 7%, transparent); }
+.problema-critico.menor { border-left-color: var(--texto-3); background: transparent; }
+.problema-critico b { color: var(--texto); }
+
+/* ------------------------------- pista -------------------------------- */
+.pista {
+  margin-top: 14px; padding: 16px 18px; border-radius: var(--raio);
+  background: color-mix(in srgb, var(--ambar) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ambar) 26%, transparent);
+  animation: surgir .3s ease;
+}
+.pista-topo { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.pista-nivel { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ambar); }
+.pista .markdown { font-size: 14.6px; color: var(--texto); }
+.pista .mais-pista { margin-top: 12px; }
+
+/* ------------------------------ questão ------------------------------- */
+.questao-gerada { margin-top: 16px; }
+.selo-gabarito { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; font-size: 11.5px; font-weight: 600; background: color-mix(in srgb, var(--jade-400) 14%, transparent); color: var(--jade-300); border: 1px solid color-mix(in srgb, var(--jade-400) 28%, transparent); }
+.selo-gabarito.nao { background: color-mix(in srgb, var(--ambar) 14%, transparent); color: var(--ambar); border-color: color-mix(in srgb, var(--ambar) 28%, transparent); }
+.erro-distrator { display: block; margin-top: 5px; font-size: 12.2px; color: var(--texto-3); font-style: italic; }
+
+/* KaTeX: herda a cor do tema e não estoura a largura em telas estreitas. */
+.katex { color: inherit; font-size: 1.04em; }
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
+.markdown .katex-display > .katex { text-align: left; }
+
+@media (max-width: 860px) {
+  .mat-acoes .segmentado { margin-left: 0; width: 100%; justify-content: space-between; }
+  .mat-acoes .botao-primario, .mat-acoes .botao-secundario { flex: 1; }
+}

@@ -85,6 +85,14 @@
     registrarRevisao: (cartaoId, nota) => enviar(`/api/revisao/${cartaoId}`, { nota }),
     estatisticas: () => obter("/api/estatisticas"),
 
+    /* --- matemática --- */
+    matTopicos: () => obter("/api/matematica/topicos"),
+    matDiagnostico: (corpo) => enviar("/api/matematica/diagnostico", corpo),
+    matResolver: (corpo) => enviar("/api/matematica/resolver", corpo),
+    matPista: (corpo) => enviar("/api/matematica/pista", corpo),
+    matConferir: (corpo) => enviar("/api/matematica/conferir", corpo),
+    matCriar: (corpo) => enviar("/api/matematica/criar", corpo),
+
     /* --- biblioteca --- */
     biblioteca: () => obter("/api/biblioteca"),
     indexarPasta: (area) => enviar("/api/biblioteca/indexar", { area: area || "" }),

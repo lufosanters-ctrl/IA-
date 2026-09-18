@@ -255,3 +255,79 @@ def test_pesquisa_expoe_intencao_e_verificacao(cliente):
     assert dados["intencao_rotulo"]
     assert dados["verificacao"] is not None
     assert "cobertura" in dados["verificacao"]
+
+
+# --------------------------------------------------------------------------
+# Motor matemático
+# --------------------------------------------------------------------------
+
+def test_topicos_de_matematica(cliente):
+    dados = cliente.get("/api/matematica/topicos").json()
+    assert len(dados["topicos"]) >= 12
+    assert any(t["gera_questao"] for t in dados["topicos"])
+    assert all(t["estrategias"] and t["verificacoes"] for t in dados["topicos"])
+
+
+def test_diagnostico_nao_chama_o_modelo(cliente):
+    dados = cliente.post("/api/matematica/diagnostico", json={
+        "enunciado": "Resolva a equação x^2 - 5x + 6 = 0."
+    }).json()
+    assert dados["diagnostico"]["dificuldade"] in {1, 2, 3, 4}
+    assert dados["analise"]["equacoes"]
+
+
+def test_resolver_problema(cliente):
+    r = cliente.post("/api/matematica/resolver", json={
+        "enunciado": "Resolva a equação x^2 - 5x + 6 = 0."
+    }).json()
+    assert r["verificado"] is True
+    assert "## Resposta" in r["texto"]
+    assert r["analise"]["solucoes"]["x"] == ["2", "3"]
+
+
+def test_resolver_rejeita_enunciado_curto(cliente):
+    assert cliente.post("/api/matematica/resolver", json={"enunciado": "x"}).status_code == 422
+
+
+def test_pista_respeita_a_escala(cliente):
+    for nivel in (1, 4):
+        p = cliente.post("/api/matematica/pista", json={
+            "enunciado": "Resolva a equação x^2 - 5x + 6 = 0.", "nivel": nivel,
+        }).json()
+        assert p["nivel"] == nivel
+        assert p["texto"]
+    assert cliente.post("/api/matematica/pista", json={
+        "enunciado": "Resolva x^2 = 4.", "nivel": 9,
+    }).status_code == 422
+
+
+def test_conferir_resposta_certa_e_errada(cliente):
+    certa = cliente.post("/api/matematica/conferir", json={
+        "enunciado": "Resolva a equação x^2 - 5x + 6 = 0.",
+        "resposta": "x = 2 e x = 3",
+    }).json()
+    assert certa["veredito"] == "confere"
+
+    errada = cliente.post("/api/matematica/conferir", json={
+        "enunciado": "Resolva a equação x^2 - 5x + 6 = 0.",
+        "resposta": "x = 2",
+    }).json()
+    assert errada["veredito"] == "nao_confere"
+
+
+def test_criar_questao_com_gabarito_conferido(cliente):
+    q = cliente.post("/api/matematica/criar", json={
+        "topico": "trigonometria", "semente": 5,
+    }).json()
+    assert q["conferida"] is True
+    assert len(q["alternativas"]) == 4
+    assert 0 <= q["correta"] < 4
+    assert q["erros_dos_distratores"][q["correta"]] == "-"
+
+
+def test_enunciado_malicioso_nao_executa_codigo(cliente):
+    r = cliente.post("/api/matematica/resolver", json={
+        "enunciado": 'Calcule __import__("os").system("id") = 0 para todo x.'
+    })
+    assert r.status_code == 200
+    assert r.json()["analise"]["equacoes"] == []

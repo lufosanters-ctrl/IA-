@@ -18,8 +18,12 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__, banco, biblioteca
+from . import matematica
 from .ai import estudo, pesquisa
 from .catalogo import baixar_catalogo, listar_catalogo
+from .matematica.classificacao import NIVEIS, TOPICOS, classificar
+from .matematica.criacao import GERADORES, criar as criar_questao
+from .matematica.resolucao import Problema, dar_pista, resolver as resolver_problema
 from .livros import FORMATOS
 from .config import obter_config
 from .schemas import (
@@ -27,9 +31,13 @@ from .schemas import (
     PedidoCatalogo,
     PedidoExplicacao,
     PedidoFlashcards,
+    PedidoConferencia,
     PedidoIndexarPasta,
+    PedidoMatematica,
+    PedidoPista,
     PedidoPesquisa,
     PedidoPlano,
+    PedidoQuestao,
     PedidoQuiz,
     PedidoRevisao,
     PedidoSalvarCartoes,
@@ -423,6 +431,94 @@ async def biblioteca_remover(livro_id: int) -> dict[str, str]:
 
 
 # --------------------------------------------------------------------------
+# Motor matemático
+# --------------------------------------------------------------------------
+
+@app.get("/api/matematica/topicos", tags=["matemática"])
+async def matematica_topicos() -> dict[str, Any]:
+    """Assuntos que o motor reconhece e o que ele sabe gerar."""
+    return {
+        "topicos": [
+            {
+                "chave": t.chave,
+                "nome": t.nome,
+                "estrategias": list(t.estrategias),
+                "verificacoes": list(t.verificacoes),
+                "gera_questao": t.chave in GERADORES,
+            }
+            for t in TOPICOS
+        ],
+        "niveis": {str(k): {"nome": v[0], "descricao": v[1]} for k, v in NIVEIS.items()},
+    }
+
+
+@app.post("/api/matematica/diagnostico", tags=["matemática"])
+async def matematica_diagnostico(pedido: PedidoMatematica) -> dict[str, Any]:
+    """Só o diagnóstico: assunto, dificuldade e o que a álgebra já consegue ver.
+
+    É barato e não chama o modelo, então a interface pode mostrar o rumo da
+    resolução assim que o estudante termina de digitar.
+    """
+    diagnostico = classificar(pedido.enunciado)
+    analise = await matematica.analisar_enunciado(
+        pedido.enunciado, diagnostico.topico == "probabilidade"
+    )
+    return {"diagnostico": diagnostico.para_dict(), "analise": analise.para_dict()}
+
+
+@app.post("/api/matematica/resolver", tags=["matemática"])
+async def matematica_resolver(pedido: PedidoMatematica) -> dict[str, Any]:
+    """Resolve o problema com profundidade proporcional à sua dificuldade."""
+    resolucao = await resolver_problema(
+        Problema(
+            enunciado=pedido.enunciado,
+            tentativa=pedido.tentativa,
+            nivel_aluno=pedido.nivel_aluno,
+        )
+    )
+    return resolucao.para_dict()
+
+
+@app.post("/api/matematica/pista", tags=["matemática"])
+async def matematica_pista(pedido: PedidoPista) -> dict[str, Any]:
+    """Modo socrático: a menor ajuda capaz de destravar, sem entregar a resposta."""
+    pista = await dar_pista(
+        Problema(enunciado=pedido.enunciado, tentativa=pedido.tentativa),
+        nivel=pedido.nivel,
+    )
+    return pista.para_dict()
+
+
+@app.post("/api/matematica/conferir", tags=["matemática"])
+async def matematica_conferir(pedido: PedidoConferencia) -> dict[str, Any]:
+    """Confronta a resposta do estudante com o sistema de álgebra computacional."""
+    analise = await matematica.analisar_enunciado(pedido.enunciado, False)
+    confronto = await matematica.confrontar_resposta(pedido.enunciado, pedido.resposta)
+    checagens = list(analise.checagens) + list(confronto)
+    return {
+        "analise": analise.para_dict(),
+        "confronto": [c.para_dict() for c in confronto],
+        "veredito": (
+            "confere" if checagens and all(c.passou for c in checagens)
+            else "nao_confere" if any(not c.passou for c in checagens)
+            else "indeterminado"
+        ),
+    }
+
+
+@app.post("/api/matematica/criar", tags=["matemática"])
+async def matematica_criar(pedido: PedidoQuestao) -> dict[str, Any]:
+    """Cria uma questão objetiva no padrão ITA/IME, com o gabarito conferido."""
+    questao = await criar_questao(
+        topico=pedido.topico,
+        dificuldade=pedido.dificuldade,
+        contexto=pedido.contexto,
+        semente=pedido.semente,
+    )
+    return questao.para_dict()
+
+
+# --------------------------------------------------------------------------
 # Interface web
 # --------------------------------------------------------------------------
 
@@ -436,5 +532,7 @@ if cfg.diretorio_web.exists():
     @app.get("/", include_in_schema=False)
     async def raiz() -> FileResponse:
         return FileResponse(cfg.diretorio_web / "index.html")
+
+
 
 

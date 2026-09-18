@@ -6,6 +6,9 @@ pydantic>=2.7
 pydantic-settings>=2.3
 python-dotenv>=1.0
 
+# Motor matemático: álgebra computacional para resolver e verificar.
+sympy>=1.12
+
 # Biblioteca de livros: leitura de PDF e envio de arquivos pela interface.
 pypdf>=4.0
 python-multipart>=0.0.9

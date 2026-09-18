@@ -71,6 +71,30 @@ class PedidoIndexarPasta(BaseModel):
     area: str = Field(default="", max_length=40)
 
 
+class PedidoMatematica(BaseModel):
+    enunciado: str = Field(min_length=3, max_length=4000)
+    tentativa: str = Field(default="", max_length=4000)
+    nivel_aluno: Literal["iniciante", "intermediario", "avancado"] = "intermediario"
+
+
+class PedidoPista(BaseModel):
+    enunciado: str = Field(min_length=3, max_length=4000)
+    tentativa: str = Field(default="", max_length=4000)
+    nivel: int = Field(default=1, ge=1, le=4)
+
+
+class PedidoQuestao(BaseModel):
+    topico: str = Field(default="", max_length=40)
+    dificuldade: int = Field(default=3, ge=1, le=4)
+    contexto: str = Field(default="", max_length=500)
+    semente: int | None = None
+
+
+class PedidoConferencia(BaseModel):
+    enunciado: str = Field(min_length=3, max_length=4000)
+    resposta: str = Field(min_length=1, max_length=2000)
+
+
 class RespostaSaude(BaseModel):
     nome: str
     versao: str
