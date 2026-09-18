@@ -275,3 +275,30 @@ def test_nenhuma_chamada_exclusiva_de_posix():
             if proibidos.search(linha):
                 problemas.append(f"{arquivo.relative_to(RAIZ)}:{numero} — {linha.strip()}")
     assert not problemas, f"chamada exclusiva de POSIX em: {problemas}"
+
+
+def test_ps1_nao_cai_na_armadilha_do_intervalo_invertido():
+    """No PowerShell, `$a[1..($a.Length-1)]` conta ao contrário numa lista de
+    um elemento: `1..0` devolve os índices 1 e 0, e os argumentos saem
+    embaralhados. Montar a lista à mão evita o caso.
+    """
+    texto = (RAIZ / "iniciar.ps1").read_text(encoding="utf-8-sig")
+    assert "1..(" not in texto and "[1.." not in texto
+
+
+def test_ps1_usa_o_caminho_do_venv_do_windows():
+    """No Windows o executável fica em Scripts\\python.exe, não em bin/python."""
+    codigo = "\n".join(
+        linha for linha in
+        (RAIZ / "iniciar.ps1").read_text(encoding="utf-8-sig").splitlines()
+        if not linha.lstrip().startswith("#")
+    )
+    assert r".venv\Scripts\python.exe" in codigo
+    assert "bin/python" not in codigo, "caminho de venv do Linux no script do Windows"
+
+
+def test_iniciadores_do_windows_conferem_o_resultado_da_instalacao():
+    """Instalação que falha em silêncio deixa um .venv quebrado."""
+    for nome, marca in (("iniciar.ps1", "LASTEXITCODE"), ("iniciar.bat", "errorlevel")):
+        texto = (RAIZ / nome).read_text(encoding="utf-8-sig")
+        assert marca in texto, f"{nome} não confere o resultado da instalação"
