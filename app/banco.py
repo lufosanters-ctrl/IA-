@@ -66,15 +66,41 @@ def _agora() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# O esquema so precisa ser aplicado uma vez por processo, mas a flag e
+# reavaliada quando o arquivo do banco desaparece (apagado a mao, volume
+# reiniciado): sem isso, qualquer consulta seguinte falharia ate o servidor
+# ser reiniciado.
+_esquema_pronto = False
+
+
+def _preparar(conexao: sqlite3.Connection) -> None:
+    """Garante tabelas, indices e o baralho padrao."""
+    conexao.executescript(ESQUEMA)
+    if not conexao.execute("SELECT 1 FROM baralhos LIMIT 1").fetchone():
+        conexao.execute(
+            "INSERT INTO baralhos (nome, descricao, criado_em) VALUES (?, ?, ?)",
+            ("Geral", "Cartões salvos das suas pesquisas", _agora()),
+        )
+
+
 @contextmanager
 def conectar() -> Iterator[sqlite3.Connection]:
-    """Conexao com chaves estrangeiras ativas e commit automatico."""
+    """Conexao com chaves estrangeiras ativas, esquema garantido e commit."""
+    global _esquema_pronto
+
     cfg = obter_config()
+    cfg.caminho_banco.parent.mkdir(parents=True, exist_ok=True)
+    if not cfg.caminho_banco.exists():
+        _esquema_pronto = False
+
     conexao = sqlite3.connect(cfg.caminho_banco, timeout=15)
     conexao.row_factory = sqlite3.Row
     conexao.execute("PRAGMA foreign_keys = ON")
     conexao.execute("PRAGMA journal_mode = WAL")
     try:
+        if not _esquema_pronto:
+            _preparar(conexao)
+            _esquema_pronto = True
         yield conexao
         conexao.commit()
     except Exception:
@@ -85,15 +111,11 @@ def conectar() -> Iterator[sqlite3.Connection]:
 
 
 def iniciar_banco() -> None:
-    """Cria as tabelas e o baralho padrao, se ainda nao existirem."""
-    with conectar() as conexao:
-        conexao.executescript(ESQUEMA)
-        existe = conexao.execute("SELECT 1 FROM baralhos LIMIT 1").fetchone()
-        if not existe:
-            conexao.execute(
-                "INSERT INTO baralhos (nome, descricao, criado_em) VALUES (?, ?, ?)",
-                ("Geral", "Cartões salvos das suas pesquisas", _agora()),
-            )
+    """Cria as tabelas e o baralho padrao no arranque da aplicacao."""
+    global _esquema_pronto
+    _esquema_pronto = False
+    with conectar():
+        pass
 
 
 # --------------------------------------------------------------------------

@@ -85,3 +85,19 @@ def test_estatisticas_refletem_a_atividade():
     dados = banco.estatisticas()
     assert dados["total_cartoes"] == 1
     assert dados["total_pesquisas"] == 1
+
+
+def test_banco_se_recupera_se_o_arquivo_for_apagado(monkeypatch):
+    """Apagar data/nucleo.db com o servidor no ar nao pode derrubar a aplicacao."""
+    from app.config import obter_config
+
+    banco.criar_baralho("Antes")
+    caminho = obter_config().caminho_banco
+    for sufixo in ("", "-wal", "-shm"):
+        arquivo = caminho.with_name(caminho.name + sufixo)
+        arquivo.unlink(missing_ok=True)
+
+    # A proxima consulta recria o esquema sozinha, em vez de estourar.
+    dados = banco.estatisticas()
+    assert dados["total_cartoes"] == 0
+    assert banco.listar_baralhos()[0]["nome"] == "Geral"
