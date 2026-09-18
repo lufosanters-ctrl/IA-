@@ -84,5 +84,30 @@
       obter("/api/revisao" + (baralhoId ? `?baralho_id=${baralhoId}` : "")),
     registrarRevisao: (cartaoId, nota) => enviar(`/api/revisao/${cartaoId}`, { nota }),
     estatisticas: () => obter("/api/estatisticas"),
+
+    /* --- biblioteca --- */
+    biblioteca: () => obter("/api/biblioteca"),
+    indexarPasta: (area) => enviar("/api/biblioteca/indexar", { area: area || "" }),
+    baixarCatalogo: (chaves, area) =>
+      enviar("/api/biblioteca/catalogo", { chaves: chaves || [], area: area || "" }),
+    trechoDoLivro: (id) => obter(`/api/biblioteca/trecho/${id}`),
+    removerLivro: (id) => remover(`/api/biblioteca/${id}`),
+
+    /** Envia livros por multipart; o navegador define o Content-Type sozinho. */
+    async enviarLivros(arquivos, area) {
+      const corpo = new FormData();
+      Array.from(arquivos).forEach((arquivo) => corpo.append("arquivos", arquivo));
+      corpo.append("area", area || "");
+      const resposta = await fetch("/api/biblioteca/enviar", { method: "POST", body: corpo });
+      if (!resposta.ok) {
+        let detalhe = `Erro ${resposta.status}`;
+        try {
+          const erro = await resposta.json();
+          if (erro && erro.detail) detalhe = String(erro.detail);
+        } catch (_) { /* sem JSON */ }
+        throw new Error(detalhe);
+      }
+      return resposta.json();
+    },
   };
 })(window);

@@ -587,3 +587,142 @@ code, pre, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+
+/* ==========================================================================
+   Biblioteca do estudante
+   ========================================================================== */
+
+.selo-contador.cinza { background: var(--superficie-alta); color: var(--texto-2); border: 1px solid var(--borda); }
+
+.metricas-biblioteca { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.metrica-grande {
+  padding: 16px 18px; border: 1px solid var(--borda); border-radius: var(--raio);
+  background: var(--superficie); backdrop-filter: blur(10px);
+}
+.metrica-grande b { display: block; font-family: Fraunces, serif; font-size: 26px; line-height: 1.15; color: var(--jade-300); }
+.metrica-grande span { font-size: 12px; color: var(--texto-3); }
+
+/* ------------------------------- envio --------------------------------- */
+.area-envio {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 38px 24px; margin-bottom: 14px; cursor: pointer;
+  border: 2px dashed var(--borda-forte); border-radius: var(--raio-lg);
+  background: var(--superficie); text-align: center; transition: var(--transicao);
+}
+.area-envio:hover, .area-envio.sobre {
+  border-color: var(--jade-400); background: color-mix(in srgb, var(--jade-500) 8%, var(--superficie));
+}
+.area-envio.sobre { transform: scale(1.01); }
+.area-envio svg { width: 30px; height: 30px; fill: none; stroke: var(--jade-400); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; margin-bottom: 4px; }
+.area-envio b { font-size: 15.5px; font-weight: 600; }
+.area-envio small { font-size: 13px; color: var(--texto-3); }
+.area-envio u { color: var(--jade-300); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+.progresso-envio { width: 100%; max-width: 380px; margin-top: 10px; }
+.progresso-envio span { display: block; margin-top: 7px; font-size: 12px; color: var(--texto-3); }
+
+.resultado-envio { list-style: none; margin: 0 0 22px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.resultado-envio li {
+  display: flex; align-items: center; gap: 10px; padding: 9px 13px;
+  border: 1px solid var(--borda); border-radius: var(--raio-sm);
+  background: var(--superficie-solida); font-size: 13.4px; animation: surgir .3s ease;
+}
+.resultado-envio .marca { width: 18px; height: 18px; flex: none; display: grid; place-items: center; border-radius: 5px; font-size: 11px; font-weight: 700; }
+.resultado-envio .marca.indexado { background: color-mix(in srgb, var(--jade-400) 22%, transparent); color: var(--jade-300); }
+.resultado-envio .marca.duplicado { background: var(--superficie-alta); color: var(--texto-3); }
+.resultado-envio .marca.erro { background: color-mix(in srgb, var(--rosa) 22%, transparent); color: var(--rosa); }
+.resultado-envio .detalhe { margin-left: auto; font-size: 12px; color: var(--texto-3); text-align: right; }
+
+/* ------------------------------ catálogo ------------------------------- */
+.nota-secao { margin: -6px 0 14px; font-size: 13.2px; color: var(--texto-2); }
+
+.grade-catalogo { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 10px; }
+.item-catalogo {
+  display: flex; flex-direction: column; gap: 4px; padding: 13px 15px;
+  border: 1px solid var(--borda); border-radius: var(--raio); text-align: left;
+  background: var(--superficie-solida); color: var(--texto); font: inherit;
+  cursor: pointer; transition: var(--transicao);
+}
+.item-catalogo:hover:not(:disabled) { border-color: var(--jade-400); transform: translateY(-2px); box-shadow: var(--sombra); }
+.item-catalogo:disabled { opacity: .55; cursor: progress; }
+.item-catalogo b { font-size: 14px; font-weight: 600; }
+.item-catalogo small { font-size: 12px; color: var(--texto-3); line-height: 1.45; }
+.item-catalogo .rodape { display: flex; gap: 6px; margin-top: 6px; }
+.item-catalogo .origem { padding: 1px 7px; border-radius: 99px; font-size: 10.5px; background: color-mix(in srgb, var(--violeta) 14%, transparent); color: var(--violeta); }
+.item-catalogo .area-livro { padding: 1px 7px; border-radius: 99px; font-size: 10.5px; background: var(--superficie-alta); color: var(--texto-3); }
+.item-catalogo.baixado { border-color: color-mix(in srgb, var(--jade-400) 45%, transparent); }
+.item-catalogo.baixado::after { content: "já na biblioteca"; font-size: 10.5px; color: var(--jade-300); }
+
+/* ---------------------------- livros na estante ------------------------ */
+.grade-livros { display: grid; grid-template-columns: repeat(auto-fill, minmax(262px, 1fr)); gap: 12px; }
+.livro {
+  position: relative; padding: 16px; border: 1px solid var(--borda);
+  border-radius: var(--raio); background: var(--superficie-solida);
+  border-left: 3px solid var(--jade-500); transition: var(--transicao);
+}
+.livro:hover { border-color: var(--borda-forte); border-left-color: var(--jade-400); }
+.livro h4 { margin: 0 0 4px; padding-right: 26px; font-size: 14.6px; font-weight: 600; font-family: Inter, sans-serif; line-height: 1.35; }
+.livro .autor { font-size: 12.3px; color: var(--texto-2); }
+.livro .numeros { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; font-size: 11.5px; color: var(--texto-3); }
+.livro .numeros b { color: var(--jade-300); font-weight: 600; }
+.livro .licenca { margin-top: 8px; font-size: 11px; color: var(--texto-3); }
+.livro .remover {
+  position: absolute; top: 12px; right: 12px; width: 24px; height: 24px;
+  display: grid; place-items: center; border: 0; border-radius: 6px;
+  background: transparent; color: var(--texto-3); cursor: pointer;
+  font-size: 15px; line-height: 1; transition: var(--transicao);
+}
+.livro .remover:hover { background: color-mix(in srgb, var(--rosa) 16%, transparent); color: var(--rosa); }
+
+/* ==========================================================================
+   Checagem de fundamentação
+   ========================================================================== */
+
+.medidor { display: flex; flex-direction: column; gap: 9px; margin-bottom: 12px; }
+.medidor-linha { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--texto-2); }
+.medidor-linha .rotulo { width: 78px; flex: none; }
+.medidor-barra { flex: 1; height: 6px; border-radius: 99px; background: var(--borda); overflow: hidden; }
+.medidor-barra i { display: block; height: 100%; border-radius: 99px; transition: width .5s ease; }
+.medidor-barra i.alto  { background: linear-gradient(90deg, var(--jade-500), var(--jade-300)); }
+.medidor-barra i.medio { background: linear-gradient(90deg, var(--ambar), #fcd34d); }
+.medidor-barra i.baixo { background: linear-gradient(90deg, var(--rosa), #fda4af); }
+.medidor-linha .valor { width: 38px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.alerta-verificacao {
+  display: flex; gap: 9px; padding: 9px 12px; margin-top: 8px;
+  border-radius: var(--raio-sm); font-size: 12.6px; line-height: 1.5;
+  background: color-mix(in srgb, var(--ambar) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ambar) 26%, transparent);
+  color: var(--texto-2);
+}
+.alerta-verificacao::before { content: "!"; flex: none; width: 17px; height: 17px; display: grid; place-items: center; border-radius: 50%; background: var(--ambar); color: #241a00; font-size: 11px; font-weight: 800; }
+
+.veredito { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--raio-sm); font-size: 13px; font-weight: 550; margin-bottom: 12px; }
+.veredito.ok { background: color-mix(in srgb, var(--jade-500) 12%, transparent); color: var(--jade-300); border: 1px solid color-mix(in srgb, var(--jade-400) 28%, transparent); }
+.veredito.atencao { background: color-mix(in srgb, var(--ambar) 12%, transparent); color: var(--ambar); border: 1px solid color-mix(in srgb, var(--ambar) 28%, transparent); }
+
+/* Marca as afirmações frágeis dentro do próprio texto da resposta. */
+.markdown .frase-fraca { background: color-mix(in srgb, var(--ambar) 13%, transparent); border-bottom: 1px dashed color-mix(in srgb, var(--ambar) 55%, transparent); border-radius: 3px; padding: 0 2px; }
+
+/* ==========================================================================
+   Citação vinda de livro
+   ========================================================================== */
+
+.citacao.de-livro .citacao-numero { background: color-mix(in srgb, var(--violeta) 18%, transparent); color: var(--violeta); }
+.citacao-titulo.sem-link { cursor: pointer; }
+.citacao-titulo.sem-link:hover { color: var(--violeta); }
+
+.trecho-livro {
+  /* A citação é um grid de 24px + 1fr; sem isto o trecho cai na coluna
+     estreita e vira uma coluna de uma letra por linha. */
+  grid-column: 1 / -1;
+  margin-top: 9px; padding: 11px 13px; border-radius: var(--raio-sm);
+  background: color-mix(in srgb, var(--violeta) 8%, transparent);
+  border-left: 2px solid var(--violeta); font-size: 12.8px; line-height: 1.6;
+  color: var(--texto-2); animation: surgir .3s ease; max-height: 260px; overflow-y: auto;
+}
+
+@media (max-width: 860px) {
+  .grade-catalogo, .grade-livros { grid-template-columns: 1fr; }
+  .area-envio { padding: 26px 16px; }
+}

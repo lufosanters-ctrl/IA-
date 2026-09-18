@@ -10,18 +10,24 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from pathlib import Path
+
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, banco
+from . import __version__, banco, biblioteca
 from .ai import estudo, pesquisa
+from .catalogo import baixar_catalogo, listar_catalogo
+from .livros import FORMATOS
 from .config import obter_config
 from .schemas import (
     PedidoBaralho,
+    PedidoCatalogo,
     PedidoExplicacao,
     PedidoFlashcards,
+    PedidoIndexarPasta,
     PedidoPesquisa,
     PedidoPlano,
     PedidoQuiz,
@@ -41,8 +47,13 @@ cfg = obter_config()
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI):
     banco.iniciar_banco()
-    log.info("Nucleo %s pronto | modelo=%s | LLM=%s", __version__, cfg.modelo,
-             "ativo" if cfg.tem_llm else "modo extrativo")
+    biblioteca.iniciar()
+    acervo = biblioteca.estatisticas()
+    log.info(
+        "Nucleo %s pronto | modelo=%s | LLM=%s | biblioteca: %d livros, %d trechos",
+        __version__, cfg.modelo, "ativo" if cfg.tem_llm else "modo extrativo",
+        acervo["livros"], acervo["trechos"],
+    )
     yield
     log.info("Nucleo encerrado")
 
@@ -78,6 +89,7 @@ async def saude() -> dict[str, Any]:
         "modo": "neural" if cfg.tem_llm else "extrativo",
         "fontes": listar_fontes(),
         "cache": pesquisa.estatisticas_cache(),
+        "biblioteca": biblioteca.estatisticas(),
     }
 
 
@@ -311,6 +323,106 @@ async def estatisticas() -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
+# Biblioteca do estudante
+# --------------------------------------------------------------------------
+
+@app.get("/api/biblioteca", tags=["biblioteca"])
+async def biblioteca_estado() -> dict[str, Any]:
+    """Livros indexados, estatisticas e o catalogo aberto disponivel."""
+    return {
+        "livros": biblioteca.listar_livros(),
+        "estatisticas": biblioteca.estatisticas(),
+        "catalogo": listar_catalogo(),
+        "pasta": str(biblioteca.diretorio_livros()),
+        "formatos": sorted(FORMATOS),
+    }
+
+
+@app.post("/api/biblioteca/enviar", tags=["biblioteca"])
+async def biblioteca_enviar(
+    arquivos: list[UploadFile] = File(...),
+    area: str = Form(default=""),
+) -> dict[str, Any]:
+    """Recebe livros enviados pela interface, guarda e indexa."""
+    destino = biblioteca.diretorio_livros()
+    limite = cfg.max_mb_por_livro * 1024 * 1024
+    resultados: list[dict[str, Any]] = []
+
+    for enviado in arquivos:
+        nome = Path(enviado.filename or "livro").name
+        if Path(nome).suffix.lower() not in FORMATOS:
+            resultados.append({
+                "arquivo": nome, "estado": "erro",
+                "detalhe": f"formato não suportado (aceitos: {', '.join(sorted(FORMATOS))})",
+            })
+            continue
+
+        caminho = destino / nome
+        tamanho = 0
+        try:
+            with open(caminho, "wb") as saida:
+                while bloco := await enviado.read(1 << 20):
+                    tamanho += len(bloco)
+                    if tamanho > limite:
+                        raise ValueError("arquivo maior que o limite")
+                    saida.write(bloco)
+        except ValueError:
+            caminho.unlink(missing_ok=True)
+            resultados.append({
+                "arquivo": nome, "estado": "erro",
+                "detalhe": f"o arquivo passa de {cfg.max_mb_por_livro} MB",
+            })
+            continue
+        except OSError as exc:
+            resultados.append({"arquivo": nome, "estado": "erro",
+                               "detalhe": f"falha ao gravar: {exc.strerror}"})
+            continue
+
+        resultado = biblioteca.indexar(caminho, area=area)
+        if resultado.estado == "erro":
+            caminho.unlink(missing_ok=True)
+        resultados.append(resultado.para_dict())
+
+    return {"resultados": resultados, "estatisticas": biblioteca.estatisticas()}
+
+
+@app.post("/api/biblioteca/indexar", tags=["biblioteca"])
+async def biblioteca_indexar(pedido: PedidoIndexarPasta) -> dict[str, Any]:
+    """Varre a pasta biblioteca/ e indexa o que ainda nao esta no indice."""
+    resultados = biblioteca.indexar_pasta(area=pedido.area)
+    return {
+        "resultados": [r.para_dict() for r in resultados],
+        "estatisticas": biblioteca.estatisticas(),
+    }
+
+
+@app.post("/api/biblioteca/catalogo", tags=["biblioteca"])
+async def biblioteca_catalogo(pedido: PedidoCatalogo) -> dict[str, Any]:
+    """Baixa e indexa livros didaticos abertos (Wikilivros e Project Gutenberg)."""
+    resultados = await baixar_catalogo(area=pedido.area, chaves=pedido.chaves or None)
+    return {
+        "resultados": [r.para_dict() for r in resultados],
+        "estatisticas": biblioteca.estatisticas(),
+    }
+
+
+@app.get("/api/biblioteca/trecho/{trecho_id}", tags=["biblioteca"])
+async def biblioteca_trecho(trecho_id: int) -> dict[str, Any]:
+    """Devolve um trecho do livro junto com os vizinhos, para ler em contexto."""
+    texto = biblioteca.contexto_do_trecho(trecho_id, janela=1)
+    if not texto:
+        raise HTTPException(404, "Trecho não encontrado.")
+    return {"trecho_id": trecho_id, "texto": texto}
+
+
+@app.delete("/api/biblioteca/{livro_id}", tags=["biblioteca"])
+async def biblioteca_remover(livro_id: int) -> dict[str, str]:
+    if not biblioteca.remover_livro(livro_id):
+        raise HTTPException(404, "Livro não encontrado.")
+    return {"status": "removido"}
+
+
+# --------------------------------------------------------------------------
 # Interface web
 # --------------------------------------------------------------------------
 
@@ -324,3 +436,5 @@ if cfg.diretorio_web.exists():
     @app.get("/", include_in_schema=False)
     async def raiz() -> FileResponse:
         return FileResponse(cfg.diretorio_web / "index.html")
+
+

@@ -6,6 +6,10 @@ pydantic>=2.7
 pydantic-settings>=2.3
 python-dotenv>=1.0
 
+# Biblioteca de livros: leitura de PDF e envio de arquivos pela interface.
+pypdf>=4.0
+python-multipart>=0.0.9
+
 # Opcional: síntese neural das respostas. Sem isso a plataforma roda em modo extrativo.
 anthropic>=0.40
 

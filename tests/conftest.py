@@ -14,16 +14,48 @@ RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
 
+LIVRO_DE_TESTE = """# Fundamentos de Biologia Celular
+
+## Capítulo 4 — Fotossíntese e o mecanismo de atenção metabólica
+
+A fotossíntese é o processo pelo qual organismos convertem energia luminosa em
+energia química armazenada em moléculas orgânicas. Ocorre nos cloroplastos,
+organelas delimitadas por dupla membrana que contêm clorofila. A fase
+fotoquímica acontece nas membranas dos tilacoides, onde a energia do fóton
+excita elétrons da clorofila e alimenta a cadeia transportadora de elétrons.
+
+O ciclo de Calvin, também chamado de fase bioquímica, ocorre no estroma do
+cloroplasto e utiliza o ATP e o NADPH produzidos na fase fotoquímica para fixar
+dióxido de carbono em moléculas de três carbonos. A enzima responsável pela
+fixação é a rubisco, considerada a proteína mais abundante da biosfera.
+
+A taxa fotossintética depende da intensidade luminosa, da concentração de gás
+carbônico e da temperatura. O ponto de compensação luminoso é a intensidade em
+que a fotossíntese iguala a respiração celular, e o ponto de saturação é aquele
+a partir do qual aumentar a luz não aumenta mais a taxa.
+"""
+
+
 @pytest.fixture(autouse=True)
 def banco_temporario(tmp_path, monkeypatch):
-    """Cada teste usa um SQLite proprio, isolado do banco real."""
-    from app import banco, config
+    """Cada teste usa SQLite e biblioteca proprios, isolados dos reais."""
+    from app import banco, biblioteca, config
 
     config.obter_config.cache_clear()
-    monkeypatch.setenv("NUCLEO_CAMINHO_BANCO", str(tmp_path / "teste.db"))
     cfg = config.obter_config()
     monkeypatch.setattr(cfg, "caminho_banco", tmp_path / "teste.db")
+    monkeypatch.setattr(cfg, "diretorio_biblioteca", tmp_path / "biblioteca")
+    (tmp_path / "biblioteca").mkdir(parents=True, exist_ok=True)
+
     banco.iniciar_banco()
+    biblioteca.iniciar()
+
+    # Um livro didatico sempre presente: a biblioteca local faz parte do
+    # caminho normal da busca, entao os testes precisam exercita-la.
+    arquivo = tmp_path / "biblioteca" / "biologia-celular.md"
+    arquivo.write_text(LIVRO_DE_TESTE, encoding="utf-8")
+    biblioteca.indexar(arquivo, area="biologia")
+
     yield
     config.obter_config.cache_clear()
 
@@ -154,7 +186,52 @@ def _resposta_stackexchange(pedido: httpx.Request) -> httpx.Response:
     }]})
 
 
+def _resposta_wikilivros(pedido: httpx.Request) -> httpx.Response:
+    lista = pedido.url.params.get("list")
+    if lista == "search":
+        return httpx.Response(200, json={"query": {"search": [
+            {"title": "Cálculo/Capítulo 1"}, {"title": "Cálculo"},
+        ]}})
+    if lista == "allpages":
+        return httpx.Response(200, json={"query": {"allpages": [
+            {"title": "Cálculo/Limites"}, {"title": "Cálculo/Derivadas"},
+        ]}})
+    corpo = (
+        "O limite de uma função descreve o comportamento dela quando a variável "
+        "se aproxima de um valor. A definição formal usa épsilon e delta para "
+        "tornar precisa a ideia intuitiva de aproximação. A derivada é o limite "
+        "da razão incremental e mede a taxa de variação instantânea da função. "
+    ) * 4
+    return httpx.Response(200, json={"query": {"pages": {
+        "1": {"title": "Cálculo", "extract": corpo},
+        "2": {"title": "Cálculo/Limites", "extract": corpo},
+        "3": {"title": "Cálculo/Derivadas", "extract": corpo},
+    }}})
+
+
+def _resposta_gutendex(pedido: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, json={"results": [{
+        "id": 33283, "title": "Calculus Made Easy",
+        "authors": [{"name": "Thompson, Silvanus P."}],
+        "formats": {"text/plain; charset=utf-8":
+                    "https://www.gutenberg.org/files/33283/33283-0.txt"},
+    }]})
+
+
+def _resposta_gutenberg_arquivo(pedido: httpx.Request) -> httpx.Response:
+    miolo = (
+        "Considerando que a derivada mede a taxa de variação de uma grandeza, "
+        "o cálculo diferencial se torna uma ferramenta simples de usar. "
+    ) * 60
+    inicio = "cabeçalho\n*** START OF THIS PROJECT GUTENBERG EBOOK ***\n"
+    fim = "\n*** END OF THIS PROJECT GUTENBERG EBOOK ***\nrodapé"
+    return httpx.Response(200, text=inicio + miolo + fim)
+
+
 ROTAS = {
+    "pt.wikibooks.org": _resposta_wikilivros,
+    "gutendex.com": _resposta_gutendex,
+    "www.gutenberg.org": _resposta_gutenberg_arquivo,
     "wikipedia.org": _resposta_wikipedia,
     "api.openalex.org": _resposta_openalex,
     "export.arxiv.org": lambda p: httpx.Response(200, text=ATOM_ARXIV),

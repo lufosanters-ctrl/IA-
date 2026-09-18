@@ -42,6 +42,11 @@
         Revisão
         <span class="selo-contador" id="selo-devidos" hidden>0</span>
       </button>
+      <button class="nav-item" data-aba="biblioteca">
+        <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7"/></svg>
+        Biblioteca
+        <span class="selo-contador cinza" id="selo-livros" hidden>0</span>
+      </button>
       <button class="nav-item" data-aba="plano">
         <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg>
         Plano de estudo
@@ -180,6 +185,13 @@
             </h2>
             <ol class="lista-citacoes" id="lista-citacoes"></ol>
           </div>
+          <div class="cartao" id="cartao-verificacao" hidden>
+            <h2 class="titulo-secao">
+              <svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.4 3.4 8.5 8 9.5 4.6-1 8-5.1 8-9.5V6l-8-3z"/><path d="m9 12 2 2 4-4"/></svg>
+              Checagem das fontes
+            </h2>
+            <div id="corpo-verificacao"></div>
+          </div>
           <div class="cartao" id="cartao-diagnostico">
             <h2 class="titulo-secao">
               <svg viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
@@ -215,6 +227,48 @@
       <div class="cartao" id="cartao-lista-baralhos">
         <h2 class="titulo-secao">Seus baralhos</h2>
         <div class="grade-baralhos" id="grade-baralhos"></div>
+      </div>
+    </section>
+
+    <!-- ---------------------------- BIBLIOTECA ---------------------------- -->
+    <section class="aba" id="aba-biblioteca">
+      <header class="cabecalho compacto">
+        <h1>Sua biblioteca</h1>
+        <p>Livros didáticos indexados na sua máquina. O Núcleo procura neles
+           <em>antes</em> das bases online e cita capítulo e página. Nada é enviado
+           para fora.</p>
+      </header>
+
+      <div class="metricas-biblioteca" id="metricas-biblioteca"></div>
+
+      <div class="area-envio" id="area-envio">
+        <input type="file" id="entrada-arquivos" multiple hidden
+               accept=".pdf,.epub,.txt,.md,.markdown,.htm,.html">
+        <svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        <b>Arraste seus livros aqui</b>
+        <small>PDF, EPUB, TXT, Markdown ou HTML — ou <u>clique para escolher</u></small>
+        <div class="progresso-envio" id="progresso-envio" hidden>
+          <div class="barra"><i></i></div>
+          <span id="texto-envio">enviando…</span>
+        </div>
+      </div>
+      <ul class="resultado-envio" id="resultado-envio"></ul>
+
+      <div class="cartao" id="cartao-catalogo">
+        <h2 class="titulo-secao">
+          <svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+          Catálogo aberto <span class="contagem" id="contagem-catalogo">0</span>
+        </h2>
+        <p class="nota-secao">Livros didáticos de licença livre que o Núcleo baixa e
+           indexa sozinho, da Wikilivros e do Project Gutenberg.</p>
+        <div class="grade-catalogo" id="grade-catalogo"></div>
+      </div>
+
+      <div class="cartao">
+        <h2 class="titulo-secao">
+          Livros indexados <span class="contagem" id="contagem-livros">0</span>
+        </h2>
+        <div class="grade-livros" id="grade-livros"></div>
       </div>
     </section>
 

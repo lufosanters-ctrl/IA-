@@ -19,6 +19,8 @@
     filaRevisao: [],
     indiceRevisao: 0,
     modeloDisponivel: false,
+    livros: [],
+    catalogo: [],
   };
 
   const NOMES_FONTE = {};
@@ -55,6 +57,7 @@
     window.scrollTo({ top: 0, behavior: "smooth" });
     if (nome === "historico") carregarHistorico();
     if (nome === "revisao") carregarBaralhos();
+    if (nome === "biblioteca") carregarBiblioteca();
   }
 
   function ligarSegmentado(seletor, aoEscolher) {
@@ -82,6 +85,7 @@
       desenharFichasFontes();
       desenharGradeFontes();
       marcarEstadoModelo(saude);
+      marcarAcervo(saude.biblioteca);
     } catch (erro) {
       avisar(erro.message, "erro");
     }
@@ -156,6 +160,7 @@
       montarPlano();
     });
 
+    ligarEnvioDeLivros();
     $("#btn-novo-baralho").addEventListener("click", criarBaralho);
     $("#btn-iniciar-revisao").addEventListener("click", iniciarRevisao);
 
@@ -264,6 +269,10 @@
             $("#texto-resposta").classList.add("cursor-digitando");
             break;
 
+          case "verificacao":
+            desenharVerificacao(evento.relatorio);
+            break;
+
           case "fim": {
             $("#texto-resposta").classList.remove("cursor-digitando");
             parcial.resposta = evento.resposta || acumulado;
@@ -273,6 +282,7 @@
             $("#texto-resposta").innerHTML =
               window.Markdown.renderizar(parcial.resposta, { citacoes: true });
             desenharMeta(evento, parcial.citacoes.length);
+            marcarFrasesFracas();
             if (evento.aviso) {
               $("#aviso-resposta").textContent = evento.aviso;
               $("#aviso-resposta").hidden = false;
@@ -301,15 +311,30 @@
   }
 
   function desenharMeta(evento, quantasCitacoes) {
-    const modo = evento.modo === "neural"
-      ? '<span class="pilula jade">síntese neural</span>'
-      : '<span class="pilula ambar">modo extrativo</span>';
-    $("#pilulas-meta").innerHTML = [
-      modo,
+    const pilulas = [
+      evento.modo === "neural"
+        ? '<span class="pilula jade">síntese neural</span>'
+        : '<span class="pilula ambar">modo extrativo</span>',
       `<span class="pilula violeta">área: ${escapar(evento.area || "geral")}</span>`,
-      `<span class="pilula">${quantasCitacoes} referências</span>`,
-      `<span class="pilula">${((evento.duracao_ms || 0) / 1000).toFixed(1)}s</span>`,
-    ].join("");
+    ];
+    if (evento.intencao_rotulo) {
+      pilulas.push(`<span class="pilula">pergunta de ${escapar(evento.intencao_rotulo)}</span>`);
+    }
+    if (evento.consulta_en) {
+      pilulas.push(
+        `<span class="pilula" title="As bases em inglês receberam este termo">`
+        + `também buscou “${escapar(evento.consulta_en)}”</span>`
+      );
+    }
+    if ((evento.termos_aprendidos || []).length) {
+      pilulas.push(
+        `<span class="pilula" title="Termos aprendidos na 1ª rodada e usados na 2ª">`
+        + `2ª rodada: ${escapar(evento.termos_aprendidos.slice(0, 3).join(", "))}</span>`
+      );
+    }
+    pilulas.push(`<span class="pilula">${quantasCitacoes} referências</span>`);
+    pilulas.push(`<span class="pilula">${((evento.duracao_ms || 0) / 1000).toFixed(1)}s</span>`);
+    $("#pilulas-meta").innerHTML = pilulas.join("");
   }
 
   function desenharCitacoes(citacoes) {
@@ -320,24 +345,112 @@
       return;
     }
     $("#lista-citacoes").innerHTML = citacoes.map((c) => {
+      const extra = c.extra || {};
+      const deLivro = !!extra.local;
       const autores = (c.autores || []).slice(0, 2).join(", ");
       const meta = [
         `<span class="etiqueta-fonte">${escapar(NOMES_FONTE[c.fonte] || c.fonte)}</span>`,
         autores ? `<span>${escapar(autores)}${(c.autores || []).length > 2 ? " et al." : ""}</span>` : "",
         c.ano ? `<span>${c.ano}</span>` : "",
-        (c.extra && c.extra.citacoes) ? `<span>${c.extra.citacoes} citações</span>` : "",
+        extra.citacoes ? `<span>${extra.citacoes} citações</span>` : "",
+        deLivro && extra.paginado && extra.pagina
+          ? `<span>página ${extra.pagina}</span>` : "",
+        deLivro && extra.capitulo ? `<span>${escapar(extra.capitulo)}</span>` : "",
       ].filter(Boolean).join("");
+
+      /* Livro local não tem link externo: abre o trecho em contexto. */
+      const titulo = deLivro && !c.url
+        ? `<span class="citacao-titulo sem-link" data-trecho="${extra.trecho_id || ""}"
+             title="Ver o trecho no livro">${escapar(c.titulo)}</span>`
+        : `<a class="citacao-titulo" href="${escapar(c.url)}" target="_blank"
+             rel="noopener noreferrer">${escapar(c.titulo)}</a>`;
+
       return `
-        <li class="citacao" id="citacao-${c.numero}">
+        <li class="citacao${deLivro ? " de-livro" : ""}" id="citacao-${c.numero}">
           <span class="citacao-numero">${c.numero}</span>
           <div>
-            <a class="citacao-titulo" href="${escapar(c.url)}" target="_blank" rel="noopener noreferrer">
-              ${escapar(c.titulo)}
-            </a>
+            ${titulo}
             <div class="citacao-meta">${meta}</div>
           </div>
         </li>`;
     }).join("");
+
+    $$("#lista-citacoes .citacao-titulo.sem-link").forEach((elemento) => {
+      elemento.addEventListener("click", () => abrirTrechoDoLivro(elemento));
+    });
+  }
+
+  async function abrirTrechoDoLivro(elemento) {
+    const caixa = elemento.closest(".citacao");
+    const existente = $(".trecho-livro", caixa);
+    if (existente) { existente.remove(); return; }
+    const id = elemento.dataset.trecho;
+    if (!id) return;
+    try {
+      const dados = await window.API.trechoDoLivro(id);
+      const painel = document.createElement("div");
+      painel.className = "trecho-livro";
+      painel.textContent = dados.texto;
+      caixa.appendChild(painel);
+    } catch (erro) { avisar(erro.message, "erro"); }
+  }
+
+  /* ====================================================================
+     Checagem de fundamentação
+     ==================================================================== */
+
+  function faixa(valor) {
+    if (valor >= 0.75) return "alto";
+    if (valor >= 0.45) return "medio";
+    return "baixo";
+  }
+
+  function desenharVerificacao(relatorio) {
+    if (!relatorio) { $("#cartao-verificacao").hidden = true; return; }
+    estado.verificacao = relatorio;
+
+    const cobertura = Math.round((relatorio.cobertura || 0) * 100);
+    const solidez = Math.round((relatorio.solidez || 0) * 100);
+    const veredito = relatorio.confiavel
+      ? '<div class="veredito ok">✓ Cada afirmação confere com a fonte citada</div>'
+      : '<div class="veredito atencao">⚠ Confira os pontos abaixo antes de estudar por eles</div>';
+
+    $("#corpo-verificacao").innerHTML = `
+      ${veredito}
+      <div class="medidor">
+        <div class="medidor-linha">
+          <span class="rotulo" title="Afirmações que trazem citação">com citação</span>
+          <span class="medidor-barra"><i class="${faixa(relatorio.cobertura)}" style="width:${cobertura}%"></i></span>
+          <span class="valor">${cobertura}%</span>
+        </div>
+        <div class="medidor-linha">
+          <span class="rotulo" title="Citações cujo texto realmente sustenta a afirmação">sustentadas</span>
+          <span class="medidor-barra"><i class="${faixa(relatorio.solidez)}" style="width:${solidez}%"></i></span>
+          <span class="valor">${solidez}%</span>
+        </div>
+      </div>
+      ${(relatorio.alertas || [])
+        .map((a) => `<div class="alerta-verificacao">${escapar(a)}</div>`).join("")}`;
+    $("#cartao-verificacao").hidden = false;
+  }
+
+  /** Sublinha no texto da resposta as frases que a checagem marcou como frágeis. */
+  function marcarFrasesFracas() {
+    const relatorio = estado.verificacao;
+    if (!relatorio) return;
+    const fracas = (relatorio.afirmacoes || [])
+      .filter((a) => a.estado === "fraca")
+      .map((a) => a.frase.slice(0, 60))
+      .filter((t) => t.length > 25);
+    if (!fracas.length) return;
+
+    $$("#texto-resposta p, #texto-resposta li").forEach((bloco) => {
+      const texto = bloco.textContent;
+      if (fracas.some((inicio) => texto.includes(inicio))) {
+        bloco.classList.add("frase-fraca");
+        bloco.title = "A fonte citada não parece sustentar esta afirmação.";
+      }
+    });
   }
 
   function destacarCitacao(numero) {
@@ -842,6 +955,188 @@
       selo.textContent = dados.cartoes_devidos;
       selo.hidden = dados.cartoes_devidos === 0;
     } catch (_) { /* painel é secundário */ }
+  }
+
+
+  /* ====================================================================
+     Biblioteca do estudante
+     ==================================================================== */
+
+  function marcarAcervo(estatisticas) {
+    const selo = $("#selo-livros");
+    const quantos = (estatisticas && estatisticas.livros) || 0;
+    selo.textContent = quantos;
+    selo.hidden = quantos === 0;
+  }
+
+  function ligarEnvioDeLivros() {
+    const area = $("#area-envio");
+    const entrada = $("#entrada-arquivos");
+
+    area.addEventListener("click", () => entrada.click());
+    entrada.addEventListener("change", () => {
+      if (entrada.files.length) enviarLivros(entrada.files);
+      entrada.value = "";
+    });
+
+    ["dragenter", "dragover"].forEach((evento) =>
+      area.addEventListener(evento, (e) => {
+        e.preventDefault();
+        area.classList.add("sobre");
+      })
+    );
+    ["dragleave", "drop"].forEach((evento) =>
+      area.addEventListener(evento, (e) => {
+        e.preventDefault();
+        area.classList.remove("sobre");
+      })
+    );
+    area.addEventListener("drop", (e) => {
+      const arquivos = e.dataTransfer && e.dataTransfer.files;
+      if (arquivos && arquivos.length) enviarLivros(arquivos);
+    });
+  }
+
+  const MARCA_ESTADO = { indexado: "✓", duplicado: "·", erro: "✕" };
+
+  function mostrarResultadosDeEnvio(resultados) {
+    const lista = $("#resultado-envio");
+    (resultados || []).forEach((resultado) => {
+      const item = document.createElement("li");
+      const marca = MARCA_ESTADO[resultado.estado] || "?";
+      const detalhe = resultado.estado === "indexado"
+        ? `${resultado.trechos} trechos indexados`
+        : (resultado.detalhe || "");
+      item.innerHTML = `
+        <span class="marca ${escapar(resultado.estado)}">${marca}</span>
+        <span>${escapar(resultado.titulo || resultado.arquivo)}</span>
+        <span class="detalhe">${escapar(detalhe)}</span>`;
+      lista.prepend(item);
+    });
+  }
+
+  async function enviarLivros(arquivos) {
+    const progresso = $("#progresso-envio");
+    const quantos = arquivos.length;
+    progresso.hidden = false;
+    $("#texto-envio").textContent =
+      `lendo e indexando ${quantos} arquivo(s)… livros grandes levam alguns segundos`;
+    try {
+      const dados = await window.API.enviarLivros(arquivos, "");
+      mostrarResultadosDeEnvio(dados.resultados);
+      const indexados = dados.resultados.filter((r) => r.estado === "indexado").length;
+      if (indexados) {
+        avisar(`${indexados} livro(s) adicionados à sua biblioteca.`);
+      } else {
+        avisar("Nenhum livro novo foi indexado.", "erro");
+      }
+      await carregarBiblioteca();
+    } catch (erro) {
+      avisar(erro.message, "erro");
+    } finally {
+      progresso.hidden = true;
+    }
+  }
+
+  async function carregarBiblioteca() {
+    let dados;
+    try {
+      dados = await window.API.biblioteca();
+    } catch (erro) { avisar(erro.message, "erro"); return; }
+
+    estado.livros = dados.livros || [];
+    estado.catalogo = dados.catalogo || [];
+    const estatisticas = dados.estatisticas || {};
+    marcarAcervo(estatisticas);
+
+    const milhar = (n) => (n || 0).toLocaleString("pt-BR");
+    $("#metricas-biblioteca").innerHTML = `
+      <div class="metrica-grande"><b>${milhar(estatisticas.livros)}</b><span>livros</span></div>
+      <div class="metrica-grande"><b>${milhar(estatisticas.trechos)}</b><span>trechos indexados</span></div>
+      <div class="metrica-grande"><b>${milhar(estatisticas.palavras)}</b><span>palavras pesquisáveis</span></div>
+      <div class="metrica-grande"><b>${escapar(dados.formatos.length)}</b><span>formatos aceitos</span></div>`;
+
+    desenharCatalogo();
+    desenharLivros();
+  }
+
+  function desenharCatalogo() {
+    const jaTem = new Set(estado.livros.map((l) => (l.titulo || "").toLowerCase()));
+    $("#contagem-catalogo").textContent = estado.catalogo.length;
+    $("#grade-catalogo").innerHTML = estado.catalogo.map((item) => {
+      const baixado = jaTem.has(item.titulo.toLowerCase());
+      return `
+        <button class="item-catalogo${baixado ? " baixado" : ""}" data-chave="${escapar(item.chave)}">
+          <b>${escapar(item.titulo)}</b>
+          <small>${escapar(item.descricao || "")}</small>
+          <span class="rodape">
+            <span class="origem">${escapar(item.origem)}</span>
+            <span class="area-livro">${escapar(item.area)}</span>
+          </span>
+        </button>`;
+    }).join("");
+
+    $$("#grade-catalogo .item-catalogo").forEach((botao) => {
+      botao.addEventListener("click", () => baixarDoCatalogo(botao));
+    });
+  }
+
+  async function baixarDoCatalogo(botao) {
+    const chave = botao.dataset.chave;
+    const rotulo = $("b", botao).textContent;
+    botao.disabled = true;
+    $("small", botao).textContent = "baixando e indexando…";
+    try {
+      const dados = await window.API.baixarCatalogo([chave]);
+      mostrarResultadosDeEnvio(dados.resultados);
+      const resultado = (dados.resultados || [])[0] || {};
+      if (resultado.estado === "indexado") {
+        avisar(`“${rotulo}” entrou na sua biblioteca.`);
+      } else {
+        avisar(`${rotulo}: ${resultado.detalhe || "não foi possível baixar"}`, "erro");
+      }
+      await carregarBiblioteca();
+    } catch (erro) {
+      avisar(erro.message, "erro");
+      botao.disabled = false;
+    }
+  }
+
+  function desenharLivros() {
+    $("#contagem-livros").textContent = estado.livros.length;
+    if (!estado.livros.length) {
+      $("#grade-livros").innerHTML =
+        '<p style="color:var(--texto-3);font-size:14px;margin:0">'
+        + "Nenhum livro ainda. Envie os seus acima ou baixe um do catálogo aberto.</p>";
+      return;
+    }
+    const milhar = (n) => (n || 0).toLocaleString("pt-BR");
+    $("#grade-livros").innerHTML = estado.livros.map((livro) => `
+      <article class="livro" data-id="${livro.id}">
+        <button class="remover" title="Remover da biblioteca">✕</button>
+        <h4>${escapar(livro.titulo)}</h4>
+        ${livro.autores ? `<div class="autor">${escapar(livro.autores)}</div>` : ""}
+        <div class="numeros">
+          <span><b>${milhar(livro.trechos)}</b> trechos</span>
+          <span><b>${milhar(livro.palavras)}</b> palavras</span>
+          <span>${escapar(livro.formato)}</span>
+          ${livro.area ? `<span>${escapar(livro.area)}</span>` : ""}
+        </div>
+        ${livro.licenca ? `<div class="licenca">${escapar(livro.licenca)}</div>` : ""}
+      </article>`).join("");
+
+    $$("#grade-livros .livro").forEach((cartao) => {
+      $(".remover", cartao).addEventListener("click", async () => {
+        const titulo = $("h4", cartao).textContent;
+        if (!confirm(`Remover “${titulo}” da biblioteca?\n\n`
+                     + "O arquivo continua na pasta biblioteca/; só o índice é apagado.")) return;
+        try {
+          await window.API.removerLivro(Number(cartao.dataset.id));
+          avisar("Livro removido do índice.");
+          await carregarBiblioteca();
+        } catch (erro) { avisar(erro.message, "erro"); }
+      });
+    });
   }
 
   document.addEventListener("DOMContentLoaded", iniciar);

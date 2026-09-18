@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..texto import normalizar
 from .arxiv import FonteArxiv
+from .biblioteca import FonteBiblioteca
 from .base import FonteBase
 from .crossref import FonteCrossref
 from .openalex import FonteOpenAlex
@@ -16,6 +17,7 @@ from .wikipedia import FonteWikipedia
 FONTES: dict[str, FonteBase] = {
     fonte.id: fonte
     for fonte in (
+        FonteBiblioteca(),
         FonteWikipedia(),
         FonteOpenAlex(),
         FonteArxiv(),
@@ -28,7 +30,7 @@ FONTES: dict[str, FonteBase] = {
 }
 
 # Conjunto padrao: cobertura ampla sem estourar o tempo de resposta.
-FONTES_PADRAO = ("wikipedia", "openalex", "arxiv", "pubmed", "semanticscholar")
+FONTES_PADRAO = ("biblioteca", "wikipedia", "openalex", "arxiv", "pubmed", "semanticscholar")
 
 # Palavras que sugerem a area da pergunta -> fontes prioritarias.
 PISTAS_AREA: dict[str, tuple[str, ...]] = {
@@ -59,11 +61,11 @@ PISTAS_AREA: dict[str, tuple[str, ...]] = {
 }
 
 FONTES_POR_AREA: dict[str, tuple[str, ...]] = {
-    "medicina": ("pubmed", "wikipedia", "openalex", "semanticscholar"),
-    "computacao": ("arxiv", "stackexchange", "wikipedia", "semanticscholar"),
-    "matematica": ("wikipedia", "arxiv", "stackexchange", "openalex"),
-    "fisica": ("arxiv", "wikipedia", "openalex", "semanticscholar"),
-    "humanas": ("wikipedia", "openalex", "openlibrary", "crossref"),
+    "medicina": ("biblioteca", "pubmed", "wikipedia", "openalex", "semanticscholar"),
+    "computacao": ("biblioteca", "arxiv", "stackexchange", "wikipedia", "semanticscholar"),
+    "matematica": ("biblioteca", "wikipedia", "arxiv", "stackexchange", "openalex"),
+    "fisica": ("biblioteca", "arxiv", "wikipedia", "openalex", "semanticscholar"),
+    "humanas": ("biblioteca", "wikipedia", "openalex", "openlibrary", "crossref"),
 }
 
 

@@ -17,6 +17,9 @@ from .texto import Trecho, tokenizar
 
 # Peso de credibilidade por fonte. Valores maiores => mais confianca.
 PESO_FONTE: dict[str, float] = {
+    # O livro que o proprio estudante escolheu e curado por ele: e a fonte de
+    # maior confianca que a plataforma tem.
+    "biblioteca": 1.35,
     "openalex": 1.20,
     "pubmed": 1.20,
     "arxiv": 1.15,
@@ -36,15 +39,34 @@ def _idf(n_docs: int, n_com_termo: int) -> float:
     return math.log(1 + (n_docs - n_com_termo + 0.5) / (n_com_termo + 0.5))
 
 
-def pontuar_bm25(consulta: str, trechos: list[Trecho]) -> list[Trecho]:
-    """Atribui score BM25 a cada trecho e devolve a lista ordenada."""
+def pesos_efetivos(ajustes: dict[str, float] | None = None) -> dict[str, float]:
+    """Combina o peso base de cada fonte com o ajuste pedido pela intencao."""
+    pesos = dict(PESO_FONTE)
+    for fonte, fator in (ajustes or {}).items():
+        pesos[fonte] = pesos.get(fonte, 1.0) * fator
+    return pesos
+
+
+def pontuar_bm25(
+    consulta: str,
+    trechos: list[Trecho],
+    ajuste_fontes: dict[str, float] | None = None,
+) -> list[Trecho]:
+    """Atribui score BM25 a cada trecho e devolve a lista ordenada.
+
+    `ajuste_fontes` vem da intencao detectada na pergunta: uma duvida de
+    definicao valoriza livro didatico, uma de estado da arte valoriza
+    pre-print recente.
+    """
     if not trechos:
         return []
+
+    pesos = pesos_efetivos(ajuste_fontes)
 
     termos = tokenizar(consulta)
     if not termos:
         for trecho in trechos:
-            trecho.score = PESO_FONTE.get(trecho.fonte, 1.0)
+            trecho.score = pesos.get(trecho.fonte, 1.0)
         return sorted(trechos, key=lambda t: t.score, reverse=True)
 
     corpus = [tokenizar(t.texto) for t in trechos]
@@ -81,7 +103,7 @@ def pontuar_bm25(consulta: str, trechos: list[Trecho]) -> list[Trecho]:
             cobertura = len(set(termos) & tokens_titulo) / len(set(termos))
             score = score * (1.0 + 0.35 * cobertura) + 0.6 * cobertura
 
-        trecho.score = score * PESO_FONTE.get(trecho.fonte, 1.0)
+        trecho.score = score * pesos.get(trecho.fonte, 1.0)
 
     return sorted(trechos, key=lambda t: t.score, reverse=True)
 
@@ -98,8 +120,14 @@ def selecionar_diversos(
     limite: int,
     lambda_relevancia: float = 0.72,
     max_por_documento: int = 2,
+    max_por_fonte: int | None = None,
 ) -> list[Trecho]:
-    """Escolhe os melhores trechos evitando redundancia (MMR)."""
+    """Escolhe os melhores trechos evitando redundancia (MMR).
+
+    `max_por_fonte` impede que uma unica base domine o contexto. Sem esse
+    limite, uma biblioteca local grande afogaria as fontes online (e o
+    contrario tambem), e a resposta perderia o contraste entre pontos de vista.
+    """
     if not trechos:
         return []
 
@@ -109,12 +137,15 @@ def selecionar_diversos(
 
     escolhidos: list[Trecho] = []
     por_documento: Counter[str] = Counter()
+    por_fonte: Counter[str] = Counter()
 
     while candidatos and len(escolhidos) < limite:
         melhor: Trecho | None = None
         melhor_valor = -1e9
         for candidato in candidatos:
             if por_documento[candidato.doc_id] >= max_por_documento:
+                continue
+            if max_por_fonte and por_fonte[candidato.fonte] >= max_por_fonte:
                 continue
             relevancia = candidato.score / melhor_score
             redundancia = max(
@@ -129,6 +160,7 @@ def selecionar_diversos(
             break
         escolhidos.append(melhor)
         por_documento[melhor.doc_id] += 1
+        por_fonte[melhor.fonte] += 1
         candidatos.remove(melhor)
 
     return escolhidos

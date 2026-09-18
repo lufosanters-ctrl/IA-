@@ -54,6 +54,11 @@ class Configuracao(BaseSettings):
     cache_max_itens: int = 512
     caminho_banco: Path = RAIZ / "data" / "nucleo.db"
 
+    # --- Biblioteca local -----------------------------------------------
+    # Pasta onde o estudante deixa os livros a serem indexados.
+    diretorio_biblioteca: Path = RAIZ / "biblioteca"
+    max_mb_por_livro: int = 200
+
     @property
     def tem_llm(self) -> bool:
         """Indica se ha chave de API configurada para sintese neural."""
@@ -69,4 +74,5 @@ def obter_config() -> Configuracao:
     """Retorna a configuracao (carregada uma unica vez)."""
     cfg = Configuracao()
     cfg.caminho_banco.parent.mkdir(parents=True, exist_ok=True)
+    cfg.diretorio_biblioteca.mkdir(parents=True, exist_ok=True)
     return cfg

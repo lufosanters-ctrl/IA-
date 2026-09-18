@@ -1,13 +1,17 @@
-"""Pipeline de pesquisa: consulta as bases, ranqueia e sintetiza a resposta.
+"""Pipeline de pesquisa: entende a pergunta, consulta as bases e sintetiza.
 
 Fluxo completo:
 
     pergunta
+      -> classificacao da intencao (definicao, procedimento, estado da arte...)
       -> roteamento por area do conhecimento
-      -> consulta paralela as bases publicas (com cache)
-      -> fragmentacao dos textos em trechos
-      -> ranqueamento BM25 + selecao diversa (MMR)
-      -> sintese com citacoes numeradas [1], [2], ...
+      -> ponte bilingue: a versao em ingles vai para as bases academicas
+      -> consulta paralela as bases (com cache) + biblioteca local
+      -> fragmentacao e ranqueamento BM25 com pesos ajustados pela intencao
+      -> (modo profundo) segunda rodada com os termos aprendidos na primeira
+      -> selecao diversa (MMR), equilibrada entre fontes
+      -> sintese com citacoes numeradas
+      -> checagem de fundamentacao de cada afirmacao
 """
 
 from __future__ import annotations
@@ -21,14 +25,30 @@ import httpx
 
 from ..cache import CacheTTL
 from ..config import obter_config
+from ..consulta import (
+    Intencao,
+    classificar_intencao,
+    consulta_expandida,
+    termos_de_realimentacao,
+    versao_em_ingles,
+)
 from ..ranking import pontuar_bm25, selecionar_diversos
 from ..sources import Documento
-from ..sources.registro import FONTES, detectar_area, escolher_fontes
+from ..sources.registro import FONTES, detectar_area, escolher_fontes, rotular_area
 from ..texto import Trecho, dividir_em_trechos, resumir_extrativo, truncar
 from .llm import ErroModelo, obter_motor
+from .verificacao import Relatorio, verificar_fundamentacao
 
 _cfg = obter_config()
 _cache = CacheTTL(_cfg.cache_ttl_segundos, _cfg.cache_max_itens)
+
+# Bases cujo acervo e predominantemente em ingles: recebem a consulta traduzida.
+FONTES_EM_INGLES = {
+    "arxiv", "pubmed", "openalex", "semanticscholar", "crossref",
+    "openlibrary", "stackexchange",
+}
+# A biblioteca local pode ter livros nos dois idiomas: recebe as duas versoes.
+FONTES_BILINGUES = {"biblioteca"}
 
 SISTEMA_PESQUISA = """Voce e o Nucleo, um tutor academico que responde em portugues do Brasil.
 
@@ -38,12 +58,16 @@ Regras invioláveis:
    afirmacao factual precisa de pelo menos uma citacao.
 3. Se os trechos nao responderem a pergunta, diga isso com clareza e explique o
    que falta. Nunca invente dados, numeros, autores ou datas.
-4. Quando as fontes divergirem, apresente as versoes e indique a divergencia.
+4. Numero, data ou nome proprio so podem aparecer se estiverem literalmente no
+   trecho citado.
+5. Quando as fontes divergirem, apresente as versoes e indique a divergencia.
+6. Trechos vindos de livro didatico ("Sua biblioteca") sao material de estudo
+   curado: prefira-os para explicar fundamentos, e use os artigos para
+   atualizar ou complementar.
 
 Formato da resposta (markdown):
 - Um paragrafo curto de resposta direta.
-- Secao "## Como funciona" (ou titulo equivalente ao tema) com a explicacao
-  desenvolvida, em paragrafos ou lista.
+- Uma secao "## " com titulo adequado ao tema, desenvolvendo a explicacao.
 - Secao "## Para fixar" com 2 a 4 pontos-chave que valem memorizar.
 - Se houver controversia ou limite de evidencia, uma secao "## Atencao".
 
@@ -89,6 +113,12 @@ class ResultadoPesquisa:
     area: str
     fontes_consultadas: list[dict[str, Any]]
     modo: str                      # "neural" ou "extrativo"
+    intencao: str = "geral"
+    intencao_rotulo: str = ""
+    consulta_en: str = ""
+    origem_traducao: str = ""
+    termos_aprendidos: list[str] = field(default_factory=list)
+    verificacao: Relatorio | None = None
     duracao_ms: int = 0
     aviso: str = ""
 
@@ -98,9 +128,15 @@ class ResultadoPesquisa:
             "resposta": self.resposta,
             "citacoes": [c.para_dict() for c in self.citacoes],
             "documentos": [d.para_dict() for d in self.documentos],
-            "area": self.area,
+            "area": rotular_area(self.area),
             "fontes_consultadas": self.fontes_consultadas,
             "modo": self.modo,
+            "intencao": self.intencao,
+            "intencao_rotulo": self.intencao_rotulo,
+            "consulta_en": self.consulta_en,
+            "origem_traducao": self.origem_traducao,
+            "termos_aprendidos": self.termos_aprendidos,
+            "verificacao": self.verificacao.para_dict() if self.verificacao else None,
             "duracao_ms": self.duracao_ms,
             "aviso": self.aviso,
         }
@@ -124,12 +160,24 @@ def criar_cliente() -> httpx.AsyncClient:
     )
 
 
+def consulta_para_fonte(fonte: str, consulta: str, consulta_en: str) -> str:
+    """Escolhe qual versao da pergunta mandar para cada base."""
+    if not consulta_en or consulta_en.strip().lower() == consulta.strip().lower():
+        return consulta
+    if fonte in FONTES_BILINGUES:
+        return f"{consulta} {consulta_en}"
+    if fonte in FONTES_EM_INGLES:
+        return consulta_en
+    return consulta
+
+
 async def coletar_documentos(
     consulta: str,
     fontes: list[str],
     limite_por_fonte: int,
     idioma: str = "pt",
     cliente: httpx.AsyncClient | None = None,
+    consulta_en: str = "",
 ) -> tuple[list[Documento], list[dict[str, Any]]]:
     """Consulta as bases em paralelo e devolve documentos + diagnostico."""
     proprio = cliente is None
@@ -144,56 +192,43 @@ async def coletar_documentos(
             fonte = FONTES.get(fonte_id)
             if fonte is None:
                 continue
-            chave = _chave_cache(fonte_id, consulta, limite_por_fonte, idioma)
+            alvo = consulta_para_fonte(fonte_id, consulta, consulta_en)
+            chave = _chave_cache(fonte_id, alvo, limite_por_fonte, idioma)
             guardado = _cache.obter(chave)
             if guardado is not None:
                 documentos.extend(guardado)
-                diagnostico.append(
-                    {
-                        "fonte": fonte_id,
-                        "nome": fonte.nome,
-                        "itens": len(guardado),
-                        "erro": "",
-                        "duracao_ms": 0,
-                        "cache": True,
-                    }
-                )
+                diagnostico.append({
+                    "fonte": fonte_id, "nome": fonte.nome, "itens": len(guardado),
+                    "erro": "", "duracao_ms": 0, "cache": True, "consulta": alvo,
+                })
                 continue
             pendentes.append(fonte_id)
-            tarefas.append(fonte.executar(cliente, consulta, limite_por_fonte, idioma))
+            tarefas.append(fonte.executar(cliente, alvo, limite_por_fonte, idioma))
 
         if tarefas:
             resultados = await asyncio.gather(*tarefas, return_exceptions=True)
             for fonte_id, resultado in zip(pendentes, resultados):
                 fonte = FONTES[fonte_id]
+                alvo = consulta_para_fonte(fonte_id, consulta, consulta_en)
                 if isinstance(resultado, BaseException):
-                    diagnostico.append(
-                        {
-                            "fonte": fonte_id,
-                            "nome": fonte.nome,
-                            "itens": 0,
-                            "erro": f"falha inesperada: {type(resultado).__name__}",
-                            "duracao_ms": 0,
-                            "cache": False,
-                        }
-                    )
+                    diagnostico.append({
+                        "fonte": fonte_id, "nome": fonte.nome, "itens": 0,
+                        "erro": f"falha inesperada: {type(resultado).__name__}",
+                        "duracao_ms": 0, "cache": False, "consulta": alvo,
+                    })
                     continue
                 if not resultado.erro:
                     _cache.guardar(
-                        _chave_cache(fonte_id, consulta, limite_por_fonte, idioma),
+                        _chave_cache(fonte_id, alvo, limite_por_fonte, idioma),
                         resultado.documentos,
                     )
                 documentos.extend(resultado.documentos)
-                diagnostico.append(
-                    {
-                        "fonte": fonte_id,
-                        "nome": fonte.nome,
-                        "itens": len(resultado.documentos),
-                        "erro": resultado.erro,
-                        "duracao_ms": resultado.duracao_ms,
-                        "cache": False,
-                    }
-                )
+                diagnostico.append({
+                    "fonte": fonte_id, "nome": fonte.nome,
+                    "itens": len(resultado.documentos), "erro": resultado.erro,
+                    "duracao_ms": resultado.duracao_ms, "cache": False,
+                    "consulta": alvo,
+                })
         return documentos, diagnostico
     finally:
         if proprio:
@@ -212,15 +247,24 @@ def montar_trechos(documentos: list[Documento]) -> list[Trecho]:
         for indice, bloco in enumerate(blocos[:6]):
             trechos.append(
                 Trecho(
-                    texto=bloco,
-                    doc_id=doc.id,
-                    titulo=doc.titulo,
-                    url=doc.url,
-                    fonte=doc.fonte,
-                    indice=indice,
+                    texto=bloco, doc_id=doc.id, titulo=doc.titulo,
+                    url=doc.url, fonte=doc.fonte, indice=indice,
                 )
             )
     return trechos
+
+
+def _juntar_documentos(*listas: list[Documento]) -> list[Documento]:
+    """Une resultados de varias rodadas sem repetir o mesmo documento."""
+    vistos: set[str] = set()
+    juntos: list[Documento] = []
+    for lista in listas:
+        for doc in lista:
+            if doc.id in vistos:
+                continue
+            vistos.add(doc.id)
+            juntos.append(doc)
+    return juntos
 
 
 def _numerar_citacoes(
@@ -245,14 +289,14 @@ def _numerar_citacoes(
                     fonte=trecho.fonte,
                     autores=doc.autores if doc else [],
                     ano=doc.ano if doc else None,
-                    trecho=truncar(trecho.texto, 260),
+                    trecho=truncar(trecho.texto, 420),
                     identificador=doc.identificador if doc else "",
                     extra=doc.extra if doc else {},
                 )
             )
         numero = numeros[trecho.doc_id]
-        cabecalho = f"[{numero}] {trecho.titulo} — {FONTES[trecho.fonte].nome}"
-        partes.append(f"{cabecalho}\n{trecho.texto}")
+        nome_fonte = FONTES[trecho.fonte].nome if trecho.fonte in FONTES else trecho.fonte
+        partes.append(f"[{numero}] {trecho.titulo} — {nome_fonte}\n{trecho.texto}")
 
     return citacoes, numeros, "\n\n---\n\n".join(partes)
 
@@ -262,11 +306,7 @@ def sintetizar_extrativo(
     selecionados: list[Trecho],
     numeros: dict[str, int],
 ) -> str:
-    """Resposta construida sem modelo neural, so com os textos das fontes.
-
-    Cada paragrafo e um resumo extrativo de um trecho, com a citacao correta.
-    Nenhuma frase e inventada: tudo vem literalmente das bases consultadas.
-    """
+    """Resposta construida sem modelo neural, so com os textos das fontes."""
     if not selecionados:
         return (
             "Não encontrei material nas bases consultadas para esta pergunta. "
@@ -300,6 +340,101 @@ def sintetizar_extrativo(
     return "\n".join(linhas)
 
 
+def _montar_prompt(pergunta: str, area: str, intencao: Intencao, contexto: str) -> str:
+    orientacao = f"\nOrientacao para este tipo de pergunta: {intencao.orientacao}\n" \
+        if intencao.orientacao else ""
+    return (
+        f"Pergunta do estudante: {pergunta}\n\n"
+        f"Area provavel: {rotular_area(area)}\n"
+        f"Tipo de pergunta: {intencao.rotulo}\n{orientacao}\n"
+        f"Trechos recuperados das bases publicas e da biblioteca do estudante:\n\n"
+        f"{contexto}\n\n"
+        "Escreva a resposta seguindo as regras do sistema, citando [n]."
+    )
+
+
+@dataclass(slots=True)
+class _Recuperacao:
+    """Estado intermediario compartilhado entre a busca normal e a em fluxo."""
+
+    documentos: list[Documento]
+    diagnostico: list[dict[str, Any]]
+    selecionados: list[Trecho]
+    citacoes: list[Citacao]
+    numeros: dict[str, int]
+    contexto: str
+    termos_aprendidos: list[str]
+    consulta_en: str
+    origem_traducao: str
+
+
+async def _recuperar(
+    pergunta: str,
+    fontes: list[str] | None,
+    idioma: str,
+    profundidade: str,
+    intencao: Intencao,
+    cliente: httpx.AsyncClient,
+    ao_progredir=None,
+) -> _Recuperacao:
+    """Executa a recuperacao completa (com as rodadas extras do modo profundo)."""
+    escolhidas = escolher_fontes(pergunta, fontes)
+    limites = {"rapida": 3, "media": _cfg.max_resultados_por_fonte, "profunda": 9}
+    limite_fonte = limites.get(profundidade, _cfg.max_resultados_por_fonte)
+    limite_trechos = {
+        "rapida": 8, "media": _cfg.max_trechos_contexto, "profunda": 20
+    }.get(profundidade, _cfg.max_trechos_contexto)
+
+    # Ponte bilingue: as bases academicas recebem o termo consagrado em ingles.
+    consulta_en, origem = "", "original"
+    if profundidade != "rapida" and any(f in FONTES_EM_INGLES for f in escolhidas):
+        consulta_en, origem = await versao_em_ingles(cliente, pergunta, idioma)
+        if consulta_en.strip().lower() == pergunta.strip().lower():
+            consulta_en, origem = "", "original"
+    if ao_progredir and consulta_en:
+        await ao_progredir(f"Buscando também por “{consulta_en}” nas bases em inglês")
+
+    documentos, diagnostico = await coletar_documentos(
+        pergunta, escolhidas, limite_fonte, idioma, cliente, consulta_en
+    )
+
+    trechos = pontuar_bm25(pergunta, montar_trechos(documentos), intencao.pesos)
+
+    # Segunda rodada: o vocabulario dos melhores trechos afina a busca.
+    termos_aprendidos: list[str] = []
+    if profundidade == "profunda" and trechos:
+        termos_aprendidos = termos_de_realimentacao(trechos, pergunta)
+        if termos_aprendidos:
+            if ao_progredir:
+                await ao_progredir(
+                    "Refinando com os termos aprendidos: " + ", ".join(termos_aprendidos)
+                )
+            refinada = consulta_expandida(pergunta, termos_aprendidos)
+            extras, diag_extra = await coletar_documentos(
+                refinada, escolhidas, max(3, limite_fonte // 2), idioma, cliente,
+                consulta_expandida(consulta_en, termos_aprendidos) if consulta_en else "",
+            )
+            documentos = _juntar_documentos(documentos, extras)
+            for item in diag_extra:
+                item["rodada"] = 2
+                diagnostico.append(item)
+            trechos = pontuar_bm25(refinada, montar_trechos(documentos), intencao.pesos)
+
+    # Teto por fonte: mesmo a melhor base nao pode ocupar mais de um terco do
+    # contexto, senao a resposta perde o contraste entre pontos de vista.
+    selecionados = selecionar_diversos(
+        trechos, limite_trechos, max_por_fonte=max(2, limite_trechos // 3)
+    )
+    citacoes, numeros, contexto = _numerar_citacoes(selecionados, documentos)
+
+    return _Recuperacao(
+        documentos=documentos, diagnostico=diagnostico, selecionados=selecionados,
+        citacoes=citacoes, numeros=numeros, contexto=contexto,
+        termos_aprendidos=termos_aprendidos, consulta_en=consulta_en,
+        origem_traducao=origem,
+    )
+
+
 async def pesquisar(
     pergunta: str,
     fontes: list[str] | None = None,
@@ -311,40 +446,37 @@ async def pesquisar(
     inicio = asyncio.get_running_loop().time()
     pergunta = pergunta.strip()
     area = detectar_area(pergunta)
-    escolhidas = escolher_fontes(pergunta, fontes)
+    intencao = classificar_intencao(pergunta)
 
-    limites = {"rapida": 3, "media": _cfg.max_resultados_por_fonte, "profunda": 9}
-    limite_fonte = limites.get(profundidade, _cfg.max_resultados_por_fonte)
-    max_trechos = {"rapida": 8, "media": _cfg.max_trechos_contexto, "profunda": 20}
-    limite_trechos = max_trechos.get(profundidade, _cfg.max_trechos_contexto)
-
-    documentos, diagnostico = await coletar_documentos(
-        pergunta, escolhidas, limite_fonte, idioma, cliente
-    )
-
-    trechos = montar_trechos(documentos)
-    ranqueados = pontuar_bm25(pergunta, trechos)
-    selecionados = selecionar_diversos(ranqueados, limite_trechos)
-    citacoes, numeros, contexto = _numerar_citacoes(selecionados, documentos)
+    proprio = cliente is None
+    cliente = cliente or criar_cliente()
+    try:
+        recuperado = await _recuperar(
+            pergunta, fontes, idioma, profundidade, intencao, cliente
+        )
+    finally:
+        if proprio:
+            await cliente.aclose()
 
     motor = obter_motor()
     aviso = ""
-    if motor.disponivel and contexto:
-        prompt = (
-            f"Pergunta do estudante: {pergunta}\n\n"
-            f"Area provavel: {area}\n\n"
-            f"Trechos recuperados das bases publicas:\n\n{contexto}\n\n"
-            "Escreva a resposta seguindo as regras do sistema, citando [n]."
-        )
+    if motor.disponivel and recuperado.contexto:
         try:
-            resposta = await motor.responder(SISTEMA_PESQUISA, prompt)
+            resposta = await motor.responder(
+                SISTEMA_PESQUISA,
+                _montar_prompt(pergunta, area, intencao, recuperado.contexto),
+            )
             modo = "neural"
         except ErroModelo as exc:
-            resposta = sintetizar_extrativo(pergunta, selecionados, numeros)
+            resposta = sintetizar_extrativo(
+                pergunta, recuperado.selecionados, recuperado.numeros
+            )
             modo = "extrativo"
             aviso = f"O modelo de linguagem falhou ({exc}); usei o modo extrativo."
     else:
-        resposta = sintetizar_extrativo(pergunta, selecionados, numeros)
+        resposta = sintetizar_extrativo(
+            pergunta, recuperado.selecionados, recuperado.numeros
+        )
         modo = "extrativo"
         if not motor.disponivel:
             aviso = (
@@ -352,29 +484,26 @@ async def pesquisar(
                 "trechos literais das fontes."
             )
 
-    docs_citados = {c.titulo for c in citacoes}
-    ordenados = sorted(documentos, key=lambda d: d.titulo not in docs_citados)
+    titulos_citados = {c.titulo for c in recuperado.citacoes}
+    ordenados = sorted(recuperado.documentos, key=lambda d: d.titulo not in titulos_citados)
 
-    duracao = int((asyncio.get_running_loop().time() - inicio) * 1000)
     return ResultadoPesquisa(
         pergunta=pergunta,
         resposta=resposta,
-        citacoes=citacoes,
+        citacoes=recuperado.citacoes,
         documentos=ordenados[:40],
         area=area,
-        fontes_consultadas=diagnostico,
+        fontes_consultadas=recuperado.diagnostico,
         modo=modo,
-        duracao_ms=duracao,
+        intencao=intencao.tipo,
+        intencao_rotulo=intencao.rotulo,
+        consulta_en=recuperado.consulta_en,
+        origem_traducao=recuperado.origem_traducao,
+        termos_aprendidos=recuperado.termos_aprendidos,
+        verificacao=verificar_fundamentacao(resposta, recuperado.citacoes),
+        duracao_ms=int((asyncio.get_running_loop().time() - inicio) * 1000),
         aviso=aviso,
     )
-
-
-def estatisticas_cache() -> dict[str, int]:
-    return _cache.estatisticas
-
-
-def limpar_cache() -> None:
-    _cache.limpar()
 
 
 # --------------------------------------------------------------------------
@@ -411,21 +540,27 @@ async def recuperar_resultado(
     if guardado is not None:
         return guardado
 
-    escolhidas = escolher_fontes(pergunta, fontes)
-    documentos, diagnostico = await coletar_documentos(
-        pergunta, escolhidas, _cfg.max_resultados_por_fonte, "pt", cliente
-    )
-    trechos = pontuar_bm25(pergunta, montar_trechos(documentos))
-    selecionados = selecionar_diversos(trechos, _cfg.max_trechos_contexto)
-    citacoes, _, _ = _numerar_citacoes(selecionados, documentos)
+    intencao = classificar_intencao(pergunta)
+    proprio = cliente is None
+    cliente = cliente or criar_cliente()
+    try:
+        recuperado = await _recuperar(pergunta, fontes, "pt", "media", intencao, cliente)
+    finally:
+        if proprio:
+            await cliente.aclose()
+
     resultado = ResultadoPesquisa(
         pergunta=pergunta,
         resposta="",
-        citacoes=citacoes,
-        documentos=documentos[:40],
+        citacoes=recuperado.citacoes,
+        documentos=recuperado.documentos[:40],
         area=detectar_area(pergunta),
-        fontes_consultadas=diagnostico,
+        fontes_consultadas=recuperado.diagnostico,
         modo="recuperacao",
+        intencao=intencao.tipo,
+        intencao_rotulo=intencao.rotulo,
+        consulta_en=recuperado.consulta_en,
+        origem_traducao=recuperado.origem_traducao,
     )
     registrar_resultado(resultado, fontes)
     return resultado
@@ -440,48 +575,58 @@ async def pesquisar_em_fluxo(
     """Versao geradora: emite eventos de progresso e a resposta em pedacos.
 
     Eventos emitidos (dicionarios prontos para virar SSE):
-      {"tipo": "etapa", ...}      progresso da recuperacao
-      {"tipo": "fontes", ...}     diagnostico por base consultada
-      {"tipo": "citacoes", ...}   referencias numeradas
-      {"tipo": "texto", ...}      pedaco da resposta
-      {"tipo": "fim", ...}        metadados finais
+      {"tipo": "etapa", ...}        progresso da recuperacao
+      {"tipo": "fontes", ...}       diagnostico por base consultada
+      {"tipo": "citacoes", ...}     referencias numeradas
+      {"tipo": "texto", ...}        pedaco da resposta
+      {"tipo": "verificacao", ...}  checagem de fundamentacao
+      {"tipo": "fim", ...}          metadados finais
     """
     inicio = asyncio.get_running_loop().time()
     pergunta = pergunta.strip()
     area = detectar_area(pergunta)
+    intencao = classificar_intencao(pergunta)
     escolhidas = escolher_fontes(pergunta, fontes)
 
-    from ..sources.registro import rotular_area
+    fila: asyncio.Queue[str] = asyncio.Queue()
+
+    async def anotar(rotulo: str) -> None:
+        await fila.put(rotulo)
 
     yield {
         "tipo": "etapa",
-        "rotulo": f"Roteando para a área '{rotular_area(area)}'",
+        "rotulo": f"Pergunta do tipo “{intencao.rotulo}”, área {rotular_area(area)}",
         "fontes": escolhidas,
+        "intencao": intencao.tipo,
     }
-
-    limites = {"rapida": 3, "media": _cfg.max_resultados_por_fonte, "profunda": 9}
-    limite_fonte = limites.get(profundidade, _cfg.max_resultados_por_fonte)
-    limite_trechos = {"rapida": 8, "media": _cfg.max_trechos_contexto, "profunda": 20}.get(
-        profundidade, _cfg.max_trechos_contexto
-    )
 
     cliente = criar_cliente()
     try:
         yield {"tipo": "etapa", "rotulo": "Consultando as bases de dados"}
-        documentos, diagnostico = await coletar_documentos(
-            pergunta, escolhidas, limite_fonte, idioma, cliente
-        )
-        yield {"tipo": "fontes", "itens": diagnostico, "documentos": len(documentos)}
 
-        yield {"tipo": "etapa", "rotulo": "Ranqueando os trechos mais relevantes"}
-        trechos = pontuar_bm25(pergunta, montar_trechos(documentos))
-        selecionados = selecionar_diversos(trechos, limite_trechos)
-        citacoes, numeros, contexto = _numerar_citacoes(selecionados, documentos)
+        tarefa = asyncio.create_task(
+            _recuperar(pergunta, fontes, idioma, profundidade, intencao, cliente, anotar)
+        )
+        while not tarefa.done():
+            try:
+                rotulo = await asyncio.wait_for(fila.get(), timeout=0.25)
+                yield {"tipo": "etapa", "rotulo": rotulo}
+            except asyncio.TimeoutError:
+                continue
+        while not fila.empty():
+            yield {"tipo": "etapa", "rotulo": fila.get_nowait()}
+        recuperado = await tarefa
 
         yield {
+            "tipo": "fontes",
+            "itens": recuperado.diagnostico,
+            "documentos": len(recuperado.documentos),
+        }
+        yield {"tipo": "etapa", "rotulo": "Ranqueando os trechos mais relevantes"}
+        yield {
             "tipo": "citacoes",
-            "itens": [c.para_dict() for c in citacoes],
-            "documentos": [d.para_dict() for d in documentos[:40]],
+            "itens": [c.para_dict() for c in recuperado.citacoes],
+            "documentos": [d.para_dict() for d in recuperado.documentos[:40]],
         }
 
         motor = obter_motor()
@@ -489,25 +634,24 @@ async def pesquisar_em_fluxo(
         modo = "extrativo"
         aviso = ""
 
-        if motor.disponivel and contexto:
+        if motor.disponivel and recuperado.contexto:
             yield {"tipo": "etapa", "rotulo": "Redigindo a resposta"}
-            prompt = (
-                f"Pergunta do estudante: {pergunta}\n\n"
-                f"Area provavel: {area}\n\n"
-                f"Trechos recuperados das bases publicas:\n\n{contexto}\n\n"
-                "Escreva a resposta seguindo as regras do sistema, citando [n]."
-            )
+            prompt = _montar_prompt(pergunta, area, intencao, recuperado.contexto)
             try:
                 async for pedaco in motor.transmitir(SISTEMA_PESQUISA, prompt):
                     partes.append(pedaco)
                     yield {"tipo": "texto", "conteudo": pedaco}
                 modo = "neural"
             except ErroModelo as exc:
-                partes = [sintetizar_extrativo(pergunta, selecionados, numeros)]
+                partes = [sintetizar_extrativo(
+                    pergunta, recuperado.selecionados, recuperado.numeros
+                )]
                 aviso = f"O modelo falhou ({exc}); resposta montada em modo extrativo."
                 yield {"tipo": "texto", "conteudo": partes[0]}
         else:
-            texto = sintetizar_extrativo(pergunta, selecionados, numeros)
+            texto = sintetizar_extrativo(
+                pergunta, recuperado.selecionados, recuperado.numeros
+            )
             partes = [texto]
             if not motor.disponivel:
                 aviso = (
@@ -517,14 +661,18 @@ async def pesquisar_em_fluxo(
             yield {"tipo": "texto", "conteudo": texto}
 
         resposta = "".join(partes)
+        relatorio = verificar_fundamentacao(resposta, recuperado.citacoes)
+        yield {"tipo": "verificacao", "relatorio": relatorio.para_dict()}
+
         resultado = ResultadoPesquisa(
-            pergunta=pergunta,
-            resposta=resposta,
-            citacoes=citacoes,
-            documentos=documentos[:40],
-            area=area,
-            fontes_consultadas=diagnostico,
-            modo=modo,
+            pergunta=pergunta, resposta=resposta, citacoes=recuperado.citacoes,
+            documentos=recuperado.documentos[:40], area=area,
+            fontes_consultadas=recuperado.diagnostico, modo=modo,
+            intencao=intencao.tipo, intencao_rotulo=intencao.rotulo,
+            consulta_en=recuperado.consulta_en,
+            origem_traducao=recuperado.origem_traducao,
+            termos_aprendidos=recuperado.termos_aprendidos,
+            verificacao=relatorio,
             duracao_ms=int((asyncio.get_running_loop().time() - inicio) * 1000),
             aviso=aviso,
         )
@@ -533,9 +681,23 @@ async def pesquisar_em_fluxo(
             "tipo": "fim",
             "modo": modo,
             "area": rotular_area(area),
+            "intencao": intencao.tipo,
+            "intencao_rotulo": intencao.rotulo,
+            "consulta_en": recuperado.consulta_en,
+            "origem_traducao": recuperado.origem_traducao,
+            "termos_aprendidos": recuperado.termos_aprendidos,
             "aviso": aviso,
             "duracao_ms": resultado.duracao_ms,
             "resposta": resposta,
         }
     finally:
         await cliente.aclose()
+
+
+def estatisticas_cache() -> dict[str, int]:
+    return _cache.estatisticas
+
+
+def limpar_cache() -> None:
+    _cache.limpar()
+    _resultados.limpar()

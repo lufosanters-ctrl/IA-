@@ -128,6 +128,20 @@ class Trecho:
     score: float = 0.0
 
 
+def _cauda_em_frase(texto: str, limite: int) -> str:
+    """Ultimos ~`limite` caracteres, comecando numa frase inteira.
+
+    Corta logo apos a primeira fronteira de frase encontrada na cauda. Se a
+    cauda nao contiver nenhuma fronteira, devolve vazio: e melhor abrir mao da
+    sobreposicao do que comecar o trecho no meio de uma oracao.
+    """
+    if limite <= 0 or not texto:
+        return ""
+    pedaco = texto[-limite:]
+    achado = _RE_FIM_FRASE.search(pedaco)
+    return pedaco[achado.end():].strip() if achado else ""
+
+
 def dividir_em_trechos(
     texto: str,
     tamanho: int = 900,
@@ -149,7 +163,9 @@ def dividir_em_trechos(
             continue
         if atual:
             blocos.append(atual)
-            cauda = atual[-sobreposicao:] if sobreposicao else ""
+            # A cauda de sobreposicao comeca numa fronteira de frase: um trecho
+            # que abre no meio de uma oracao produz resumo e citacao truncados.
+            cauda = _cauda_em_frase(atual, sobreposicao) if sobreposicao else ""
             atual = f"{cauda} {frase}".strip() if cauda else frase
         else:
             blocos.append(frase[:tamanho])

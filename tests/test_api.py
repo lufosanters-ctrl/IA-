@@ -15,7 +15,7 @@ def cliente():
 def test_saude_descreve_a_plataforma(cliente):
     dados = cliente.get("/api/saude").json()
     assert dados["versao"]
-    assert len(dados["fontes"]) == 8
+    assert len(dados["fontes"]) == 9
     assert dados["modo"] in {"neural", "extrativo"}
 
 
@@ -152,3 +152,106 @@ def test_interface_web_e_servida(cliente):
     assert "Núcleo" in pagina.text
     for arquivo in ("estilo.css", "app.js", "api.js", "markdown.js"):
         assert cliente.get(f"/assets/{arquivo}").status_code == 200
+
+
+# --------------------------------------------------------------------------
+# Biblioteca
+# --------------------------------------------------------------------------
+
+LIVRO_ENVIADO = ("""# Apostila de Física
+
+## Capítulo 1 — Cinemática
+
+O movimento retilíneo uniforme ocorre quando a velocidade de um corpo permanece
+constante ao longo do tempo, de modo que o deslocamento é proporcional ao
+intervalo decorrido. A aceleração, nesse caso, é nula em qualquer instante.
+
+O movimento uniformemente variado tem aceleração constante e diferente de zero,
+o que produz uma relação quadrática entre posição e tempo, descrita pela função
+horária do deslocamento.
+""").encode("utf-8")
+
+
+def test_estado_da_biblioteca(cliente):
+    dados = cliente.get("/api/biblioteca").json()
+    assert dados["estatisticas"]["livros"] >= 1
+    assert dados["catalogo"]
+    assert ".pdf" in dados["formatos"]
+
+
+def test_enviar_livro_pela_interface(cliente):
+    resposta = cliente.post(
+        "/api/biblioteca/enviar",
+        files=[("arquivos", ("fisica.md", LIVRO_ENVIADO, "text/markdown"))],
+        data={"area": "fisica"},
+    )
+    assert resposta.status_code == 200
+    dados = resposta.json()
+    assert dados["resultados"][0]["estado"] == "indexado"
+    assert dados["estatisticas"]["livros"] >= 2
+
+    # O livro enviado passa a aparecer na pesquisa.
+    pesquisa = cliente.post("/api/pesquisar", json={
+        "pergunta": "movimento uniformemente variado", "fontes": ["biblioteca"],
+    }).json()
+    assert any(c["fonte"] == "biblioteca" for c in pesquisa["citacoes"])
+
+
+def test_enviar_formato_nao_suportado(cliente):
+    resposta = cliente.post(
+        "/api/biblioteca/enviar",
+        files=[("arquivos", ("planilha.xlsx", b"binario", "application/vnd.ms-excel"))],
+    )
+    assert resposta.status_code == 200
+    assert resposta.json()["resultados"][0]["estado"] == "erro"
+
+
+def test_enviar_o_mesmo_livro_duas_vezes(cliente):
+    envio = {"files": [("arquivos", ("repetido.md", LIVRO_ENVIADO, "text/markdown"))]}
+    cliente.post("/api/biblioteca/enviar", **envio)
+    segunda = cliente.post("/api/biblioteca/enviar", **envio).json()
+    assert segunda["resultados"][0]["estado"] == "duplicado"
+
+
+def test_trecho_em_contexto(cliente):
+    cliente.post(
+        "/api/biblioteca/enviar",
+        files=[("arquivos", ("fisica2.md", LIVRO_ENVIADO, "text/markdown"))],
+    )
+    pesquisa = cliente.post("/api/pesquisar", json={
+        "pergunta": "movimento retilíneo uniforme", "fontes": ["biblioteca"],
+    }).json()
+    citacao = next(c for c in pesquisa["citacoes"] if c["fonte"] == "biblioteca")
+    trecho_id = citacao["extra"]["trecho_id"]
+    dados = cliente.get(f"/api/biblioteca/trecho/{trecho_id}").json()
+    assert dados["texto"]
+
+
+def test_trecho_inexistente(cliente):
+    assert cliente.get("/api/biblioteca/trecho/999999").status_code == 404
+
+
+def test_remover_livro_pela_api(cliente):
+    livros = cliente.get("/api/biblioteca").json()["livros"]
+    alvo = livros[0]["id"]
+    assert cliente.delete(f"/api/biblioteca/{alvo}").status_code == 200
+    assert cliente.delete(f"/api/biblioteca/{alvo}").status_code == 404
+
+
+def test_baixar_do_catalogo(cliente):
+    dados = cliente.post("/api/biblioteca/catalogo", json={"chaves": ["calculo"]}).json()
+    assert dados["resultados"][0]["estado"] == "indexado"
+
+
+def test_indexar_pasta_pela_api(cliente):
+    assert cliente.post("/api/biblioteca/indexar", json={"area": ""}).status_code == 200
+
+
+def test_pesquisa_expoe_intencao_e_verificacao(cliente):
+    dados = cliente.post("/api/pesquisar", json={
+        "pergunta": "O que é fotossíntese?", "fontes": ["biblioteca", "wikipedia"],
+    }).json()
+    assert dados["intencao"] == "definicao"
+    assert dados["intencao_rotulo"]
+    assert dados["verificacao"] is not None
+    assert "cobertura" in dados["verificacao"]

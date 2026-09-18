@@ -62,6 +62,15 @@ class PedidoRevisao(BaseModel):
     nota: int = Field(ge=0, le=5, description="0 = esqueci, 5 = lembrei na hora")
 
 
+class PedidoCatalogo(BaseModel):
+    area: str = Field(default="", max_length=40)
+    chaves: list[str] = Field(default_factory=list, max_length=20)
+
+
+class PedidoIndexarPasta(BaseModel):
+    area: str = Field(default="", max_length=40)
+
+
 class RespostaSaude(BaseModel):
     nome: str
     versao: str

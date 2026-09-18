@@ -61,3 +61,31 @@ def test_resumir_extrativo_prioriza_frases_da_consulta():
 def test_truncar_preserva_palavra_inteira():
     assert truncar("palavra outra terceira", 12).endswith("...")
     assert truncar("curto", 40) == "curto"
+
+
+def test_trechos_nao_comecam_no_meio_de_uma_frase():
+    """Regressao: a sobreposicao entre trechos cortava a frase ao meio."""
+    texto = " ".join(
+        f"Esta é a frase número {i} do material de estudo, com tamanho suficiente "
+        f"para ocupar espaço no bloco." for i in range(1, 30)
+    )
+    trechos = dividir_em_trechos(texto, tamanho=400, sobreposicao=120)
+    assert len(trechos) > 2
+    for trecho in trechos:
+        primeiro = trecho.lstrip()[0]
+        assert primeiro.isupper() or primeiro.isdigit(), (
+            f"trecho começa no meio de uma frase: {trecho[:60]!r}"
+        )
+
+
+def test_trechos_mantem_a_sobreposicao_util():
+    texto = " ".join(
+        f"Frase {i} explicando um conceito relevante do capítulo estudado agora."
+        for i in range(1, 25)
+    )
+    trechos = dividir_em_trechos(texto, tamanho=300, sobreposicao=120)
+    # Pelo menos um trecho repete conteudo do anterior (contexto preservado).
+    assert any(
+        set(anterior.split()) & set(seguinte.split())
+        for anterior, seguinte in zip(trechos, trechos[1:])
+    )
