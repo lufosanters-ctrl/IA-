@@ -480,6 +480,16 @@ _CURTOS_DEMAIS = {"ir", "ver", "ter", "vir", "por"}
 _RE_TOKEN = re.compile(r"[0-9A-Za-zÀ-ÿ][0-9A-Za-zÀ-ÿ'-]*")
 
 
+# Como cada problema aparece para o estudante. O identificador interno fica
+# sem acento por conveniencia de codigo; o rotulo, nao.
+ROTULOS_DE_PROBLEMA = {
+    "preposicao ausente": "falta a preposição",
+    "preposicao trocada": "preposição trocada",
+    "preposicao a mais": "preposição a mais",
+    "reforco indevido": "reforço indevido",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class DesvioRegencia:
     """Uma regencia que a frase usou de forma diferente da registrada."""
@@ -493,9 +503,14 @@ class DesvioRegencia:
     sugestao: str
     exemplo: str
 
+    @property
+    def rotulo(self) -> str:
+        return ROTULOS_DE_PROBLEMA.get(self.problema, self.problema)
+
     def para_dict(self) -> dict[str, Any]:
         return {
             "verbo": self.verbo,
+            "rotulo": self.rotulo,
             "forma_usada": self.forma_usada,
             "preposicao_usada": self.preposicao_usada,
             "preposicoes_esperadas": list(self.preposicoes_esperadas),

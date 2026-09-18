@@ -93,6 +93,7 @@
     tutAjuda: (id, pedido) => enviar(`/api/tutor/sessao/${id}/ajuda`, { pedido: pedido || "" }),
     tutTentativa: (id, texto) => enviar(`/api/tutor/sessao/${id}/tentativa`, { texto }),
     tutPadroes: () => obter("/api/tutor/padroes?minimo=1"),
+    tutTreino: (corpo) => enviar("/api/tutor/treino", corpo),
 
     /** Envia a foto da questão para transcrição. */
     async tutImagem(arquivo) {

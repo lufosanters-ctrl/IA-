@@ -8,7 +8,7 @@ from typing import Any
 from .colocacao import analisar_colocacao
 from .concordancia import analisar_concordancia
 from .crase import DEPENDE, FACULTATIVA, OBRIGATORIA, PROIBIDA, analisar_crase
-from .regencia import nomes_na_frase, verbos_na_frase
+from .regencia import conferir_regencia, nomes_na_frase, verbos_na_frase
 
 
 @dataclass(slots=True)
@@ -45,6 +45,7 @@ class AnaliseGramatical:
     colocacao: list[dict[str, Any]] = field(default_factory=list)
     concordancia: list[dict[str, Any]] = field(default_factory=list)
     regencia: list[dict[str, Any]] = field(default_factory=list)
+    desvios_de_regencia: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def tem_erro(self) -> bool:
@@ -69,6 +70,7 @@ class AnaliseGramatical:
             "colocacao": self.colocacao,
             "concordancia": self.concordancia,
             "regencia": self.regencia,
+            "desvios_de_regencia": self.desvios_de_regencia,
             "tem_erro": self.tem_erro,
             "topicos_envolvidos": [
                 rotular_topico(t) for t in self.topicos_envolvidos
@@ -155,7 +157,23 @@ def analisar_frase(frase: str) -> AnaliseGramatical:
             teste=achado.teste,
         ))
 
-    # --- regência ----------------------------------------------------------
+    # --- regência: a preposição USADA bate com a exigida? -----------------
+    # O dicionário diz o que o verbo pede; esta parte confere o que a frase
+    # fez. Sem ela, todo erro clássico de regência passava limpo.
+    for desvio in conferir_regencia(frase):
+        analise.desvios_de_regencia.append(desvio.para_dict())
+        esperadas = " ou ".join(f"“{p}”" for p in desvio.preposicoes_esperadas)
+        analise.achados.append(Achado(
+            topico="regencia",
+            trecho=f"{desvio.forma_usada} {desvio.preposicao_usada}".strip(),
+            veredito="erro",
+            regra=f"regência de “{desvio.verbo}”: {desvio.rotulo}",
+            explicacao=desvio.explicacao,
+            teste=f"Forma registrada: {desvio.exemplo}"
+                  + (f" A preposição esperada é {esperadas}." if esperadas else ""),
+        ))
+
+    # --- regência: sentidos registrados do verbo ---------------------------
     for verbo, sentidos in verbos_na_frase(frase):
         entrada = {
             "verbo": verbo,

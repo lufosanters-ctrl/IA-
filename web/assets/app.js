@@ -1252,6 +1252,31 @@
     [/\s{2,}/g, " "],
   ];
 
+  // Expoentes e índices em Unicode. Sem o KaTeX — quando a rede cai ou o
+  // estudante está offline — "x^2" vira "x²" em vez de ficar com o acento
+  // circunflexo cru no meio da conta.
+  const SOBRESCRITOS = {
+    0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷",
+    8: "⁸", 9: "⁹", "+": "⁺", "-": "⁻", "(": "⁽", ")": "⁾", n: "ⁿ", i: "ⁱ",
+  };
+  const SUBSCRITOS = {
+    0: "₀", 1: "₁", 2: "₂", 3: "₃", 4: "₄", 5: "₅", 6: "₆", 7: "₇",
+    8: "₈", 9: "₉", "+": "₊", "-": "₋", "(": "₍", ")": "₎",
+    a: "ₐ", e: "ₑ", i: "ᵢ", j: "ⱼ", k: "ₖ", m: "ₘ", n: "ₙ", p: "ₚ",
+    x: "ₓ", t: "ₜ",
+  };
+
+  /** Converte `x^2` e `r_1` em `x²` e `r₁`, quando todo caractere tem mapa. */
+  function emUnicode(texto, mapa, marcador) {
+    const padrao = new RegExp(`\\${marcador}([A-Za-z0-9+\\-()]+)`, "g");
+    return texto.replace(padrao, (inteiro, corpo) => {
+      const convertido = [...corpo].map((c) => mapa[c]).join("");
+      // Se algum caractere não tem equivalente, mantém a notação original:
+      // meia conversão ("x²k") confunde mais do que o texto cru.
+      return convertido.length === corpo.length ? convertido : inteiro;
+    });
+  }
+
   function textoDeLatex(formula) {
     let saida = formula.replace(/^\$\$?|\$\$?$/g, "");
     // Três passadas: uma fração dentro de outra precisa que a interna
@@ -1259,6 +1284,8 @@
     for (let passada = 0; passada < 3; passada += 1) {
       LATEX_PARA_TEXTO.forEach(([de, para]) => { saida = saida.replace(de, para); });
     }
+    saida = emUnicode(saida, SOBRESCRITOS, "^");
+    saida = emUnicode(saida, SUBSCRITOS, "_");
     return saida.trim();
   }
 
@@ -1667,6 +1694,7 @@
   function ligarTutor() {
     $("#tut-comecar").addEventListener("click", comecarTutoria);
     $("#tut-padroes").addEventListener("click", mostrarPadroes);
+    $("#tut-treinar").addEventListener("click", () => montarTreino(""));
 
     const area = $("#tut-area-imagem");
     const entrada = $("#tut-imagem");
@@ -1891,6 +1919,9 @@
                 <b>${escapar(p.tipo)}</b>
                 <small>${escapar(p.descricao)}</small>
                 <span class="estrategia">${escapar(p.estrategia)}</span>
+                <button class="botao-texto treinar-padrao" data-erro="${escapar(p.tipo)}">
+                  Treinar este erro
+                </button>
               </div>
             </div>`).join("")
             : '<p style="color:var(--texto-3);font-size:14px;margin:0">'
@@ -1908,7 +1939,140 @@
                 <span class="valor">${d.taxa}%</span>
               </div>`).join("")}` : ""}
         </div>`;
+      $("#tut-saida").querySelectorAll(".treinar-padrao").forEach((botao) => {
+        botao.addEventListener("click", () => montarTreino("", botao.dataset.erro));
+      });
     } catch (erro) { avisar(erro.message, "erro"); }
+  }
+
+  /* --- treino dirigido ------------------------------------------------ */
+
+  // O gabarito fica só aqui, no cliente, e só depois da resposta. Pedir com
+  // `com_gabarito` antes de responder seria entregar o peixe.
+  const treinoAtual = { itens: [], respondidas: new Set() };
+
+  async function montarTreino(materia, tipoErro) {
+    const caixa = $("#tut-saida");
+    caixa.innerHTML = '<div class="cartao" style="margin-top:16px">'
+      + '<p style="margin:0;color:var(--texto-3)">Montando o treino…</p></div>';
+    try {
+      const dados = await window.API.tutTreino({
+        materia: materia || "",
+        tipo_erro: tipoErro || "",
+        quantidade: 5,
+        com_gabarito: true,
+      });
+      treinoAtual.itens = dados.itens || [];
+      treinoAtual.respondidas = new Set();
+      desenharTreino(dados);
+    } catch (erro) {
+      avisar(erro.message, "erro");
+      caixa.innerHTML = "";
+    }
+  }
+
+  function desenharTreino(dados) {
+    const itens = dados.itens || [];
+    if (!itens.length) {
+      $("#tut-saida").innerHTML = `
+        <div class="cartao" style="margin-top:16px">
+          <h2 class="titulo-secao">Treino dirigido</h2>
+          <p style="margin:0;color:var(--texto-3);font-size:14px">
+            Ainda não há material de treino para este perfil. Estude algumas
+            questões no modo tutor e volte aqui.</p>
+        </div>`;
+      return;
+    }
+    $("#tut-saida").innerHTML = `
+      <div class="cartao" style="margin-top:16px">
+        <h2 class="titulo-secao">Treino dirigido</h2>
+        <p class="motivo-treino">${escapar(dados.motivo || "")}</p>
+        ${dados.estrategia ? `<div class="teste" style="margin-bottom:16px">
+          <b>estratégia preventiva</b><br>${escapar(dados.estrategia)}</div>` : ""}
+        <div class="pilulas" style="margin-bottom:16px">
+          ${dados.tipo_erro ? `<span class="pilula ambar">${escapar(dados.tipo_erro)}</span>` : ""}
+          <span class="pilula">${escapar(dados.origem || "")}</span>
+          <span class="pilula violeta">${itens.length} exercícios</span>
+        </div>
+        ${itens.map((item, indice) => `
+          <div class="item-treino" id="treino-item-${indice}">
+            <div class="numero-treino">${indice + 1}</div>
+            <div class="corpo-treino">
+              <p class="enunciado-treino">${escapar(item.enunciado)}</p>
+              ${(item.alternativas || []).length
+                ? `<div class="alternativas-treino">
+                     ${item.alternativas.map((alt, letra) => `
+                       <button class="alternativa-treino" data-item="${indice}" data-alt="${letra}">
+                         <span class="letra">${String.fromCharCode(65 + letra)}</span>
+                         ${escapar(alt)}
+                       </button>`).join("")}
+                   </div>`
+                : `<div class="resposta-aberta">
+                     <input type="text" class="campo-treino" data-item="${indice}"
+                       placeholder="Escreva sua resposta e pressione Enter">
+                   </div>`}
+              <div class="veredito-treino" hidden></div>
+            </div>
+          </div>`).join("")}
+        <div class="barra-acoes" style="margin-top:18px">
+          <button class="botao-secundario" id="treino-outro">Outro treino</button>
+        </div>
+      </div>`;
+
+    $("#tut-saida").querySelectorAll(".alternativa-treino").forEach((botao) => {
+      botao.addEventListener("click", () => {
+        responderTreino(Number(botao.dataset.item), Number(botao.dataset.alt), botao);
+      });
+    });
+    $("#tut-saida").querySelectorAll(".campo-treino").forEach((campo) => {
+      campo.addEventListener("keydown", (evento) => {
+        if (evento.key !== "Enter") return;
+        responderAberta(Number(campo.dataset.item), campo.value.trim(), campo);
+      });
+    });
+    const outro = $("#treino-outro");
+    if (outro) outro.addEventListener("click", () => montarTreino(""));
+    renderizarFormulas($("#tut-saida"));
+  }
+
+  function mostrarVeredito(indice, acertou, item) {
+    const caixa = $(`#treino-item-${indice} .veredito-treino`);
+    if (!caixa) return;
+    caixa.hidden = false;
+    caixa.className = `veredito-treino ${acertou ? "acerto" : "erro"}`;
+    caixa.innerHTML = `
+      <b>${acertou ? "✓ Certo." : "✗ Não é essa."}</b>
+      ${!acertou ? ` A resposta é <b>${escapar(item.resposta)}</b>.` : ""}
+      ${item.explicacao ? `<br><span class="porque">${escapar(item.explicacao)}</span>` : ""}`;
+    renderizarFormulas(caixa);
+  }
+
+  function responderTreino(indice, escolha, botao) {
+    if (treinoAtual.respondidas.has(indice)) return;
+    const item = treinoAtual.itens[indice];
+    if (!item) return;
+    treinoAtual.respondidas.add(indice);
+    const acertou = escolha === item.correta;
+    const grupo = botao.parentElement;
+    grupo.querySelectorAll(".alternativa-treino").forEach((outro, letra) => {
+      outro.disabled = true;
+      if (letra === item.correta) outro.classList.add("certa");
+      else if (letra === escolha) outro.classList.add("errada");
+    });
+    mostrarVeredito(indice, acertou, item);
+  }
+
+  function responderAberta(indice, texto, campo) {
+    if (!texto || treinoAtual.respondidas.has(indice)) return;
+    const item = treinoAtual.itens[indice];
+    if (!item) return;
+    treinoAtual.respondidas.add(indice);
+    campo.disabled = true;
+    const normalizar = (v) => String(v).toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+    const acertou = normalizar(texto) === normalizar(item.resposta || "");
+    campo.classList.add(acertou ? "certa" : "errada");
+    mostrarVeredito(indice, acertou, item);
   }
 
   /* ====================================================================
@@ -2029,6 +2193,22 @@
      Aferição dos motores
      ==================================================================== */
 
+  // As áreas viajam como identificadores sem acento; a tela mostra o nome.
+  const ROTULO_AREA = {
+    algebra: "álgebra simbólica",
+    colocacao: "colocação pronominal",
+    concordancia: "concordância verbal",
+    crase: "crase",
+    ingles: "inglês",
+    lexico: "léxico (gênero e classe)",
+    materia: "roteamento de matéria",
+    regencia: "regência (dicionário)",
+    regencia_uso: "regência (uso na frase)",
+    topico: "assunto de matemática",
+  };
+
+  const rotularArea = (area) => ROTULO_AREA[area] || area;
+
   async function rodarAfericao() {
     const botao = $("#btn-aferir");
     const saida = $("#saida-afericao");
@@ -2047,7 +2227,7 @@
         <div class="medidor" style="margin-top:14px">
           ${areas.map(([area, d]) => `
             <div class="medidor-linha">
-              <span class="rotulo">${escapar(area)}</span>
+              <span class="rotulo">${escapar(rotularArea(area))}</span>
               <span class="medidor-barra">
                 <i class="${faixa(d.taxa / 100)}" style="width:${d.taxa}%"></i>
               </span>
@@ -2060,7 +2240,7 @@
           ${dados.falhas.map((f) => `
             <div class="achado-gramatical erro">
               <div class="achado-topo">
-                <span class="marca-topico">${escapar(f.area)}</span>
+                <span class="marca-topico">${escapar(rotularArea(f.area))}</span>
                 <b>${escapar(f.entrada)}</b>
               </div>
               <p>esperado <b>${escapar(f.esperado)}</b>, obtido

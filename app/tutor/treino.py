@@ -106,10 +106,12 @@ PERGUNTA_DA_AREA: dict[str, str] = {
 
 ALTERNATIVAS_DA_AREA: dict[str, list[str]] = {
     "crase": ["obrigatoria", "proibida", "facultativa", "depende_da_regencia"],
-    "colocacao": ["próclise", "mesóclise", "ênclise"],
-    "concordancia": ["correto", "erro"],
+    "colocacao": ["próclise", "mesóclise", "ênclise", "nenhum pronome"],
+    "concordancia": ["correto", "erro", "nada detectado"],
     "ingles": ["sim, há erro", "não, está correta"],
     "regencia": ["sim, rege “a”", "não rege “a”"],
+    "regencia_uso": ["sim, há desvio de regência", "não, está correta"],
+    "lexico": [],
 }
 
 
@@ -117,10 +119,29 @@ def _texto_da_resposta(caso: Caso) -> str:
     if isinstance(caso.esperado, bool):
         if caso.area == "ingles":
             return "sim, há erro" if caso.esperado else "não, está correta"
+        if caso.area == "regencia_uso":
+            return "sim, há desvio de regência" if caso.esperado else "não, está correta"
+        if caso.area == "lexico":
+            return "sim" if caso.esperado else "não"
         return "sim, rege “a”" if caso.esperado else "não rege “a”"
     if isinstance(caso.esperado, (set, frozenset)):
         return "{" + ", ".join(sorted(str(v) for v in caso.esperado)) + "}"
     return str(caso.esperado)
+
+
+def _respondivel(caso: Caso) -> bool:
+    """O caso vira um exercício que o estudante consegue responder?
+
+    Um item cujo gabarito não está entre as alternativas é impossível de
+    acertar — melhor não montá-lo do que apresentar uma pergunta sem saída.
+    """
+    alternativas = ALTERNATIVAS_DA_AREA.get(caso.area, [])
+    if not alternativas:
+        # Área sem alternativas: a questão é de resposta aberta, e o estudante
+        # escreve o que achar. Isso é legítimo — o que não pode existir é
+        # alternativa fechada cujo gabarito não está entre elas.
+        return True
+    return _texto_da_resposta(caso) in alternativas
 
 
 def _item_de_caso(caso: Caso) -> ItemDeTreino:
@@ -142,7 +163,7 @@ def _item_de_caso(caso: Caso) -> ItemDeTreino:
 def treino_de_area(area: str, quantidade: int = 4,
                    semente: int | None = None) -> list[ItemDeTreino]:
     """Exercícios de uma área, tirados do banco de casos com gabarito."""
-    casos = [c for c in TODOS_OS_CASOS if c.area == area]
+    casos = [c for c in TODOS_OS_CASOS if c.area == area and _respondivel(c)]
     if not casos:
         return []
     sorteio = random.Random(semente)
@@ -155,7 +176,7 @@ def treino_de_regra(area: str, regra: str, quantidade: int = 4) -> list[ItemDeTr
     alvo = regra.lower().strip()
     casos = [
         c for c in TODOS_OS_CASOS
-        if c.area == area and alvo and alvo in c.porque.lower()
+        if c.area == area and alvo and alvo in c.porque.lower() and _respondivel(c)
     ]
     return [_item_de_caso(caso) for caso in casos[:quantidade]]
 
@@ -223,15 +244,41 @@ def montar_treino(
     treino = Treino(motivo=motivo, tipo_erro=tipo_erro, estrategia=estrategia)
 
     if materia == "matematica":
-        questao = _questao_de_matematica(tipo_erro, semente)
-        if questao:
-            treino.itens.append(questao)
+        # Uma questão parametrizada por item. O sorteio pode repetir os mesmos
+        # coeficientes, então a deduplicação por enunciado é obrigatória: dois
+        # exercícios idênticos no mesmo treino não ensinam nada.
+        vistos: set[str] = set()
+        tentativa = 0
+        while len(treino.itens) < quantidade and tentativa < quantidade * 6:
+            questao = _questao_de_matematica(
+                tipo_erro, None if semente is None else semente + tentativa
+            )
+            tentativa += 1
+            if questao and questao.enunciado not in vistos:
+                vistos.add(questao.enunciado)
+                treino.itens.append(questao)
+        if treino.itens:
             treino.origem = "gerador paramétrico"
-        treino.itens.extend(treino_de_area("algebra", quantidade - 1, semente))
+        if len(treino.itens) < quantidade:
+            treino.itens.extend(
+                treino_de_area("algebra", quantidade - len(treino.itens), semente)
+            )
         return treino
 
     areas = AREAS_POR_MATERIA.get(materia, ("crase",))
     por_area = max(1, quantidade // len(areas))
     for area in areas:
         treino.itens.extend(treino_de_area(area, por_area, semente))
+    # Completa o treino até a quantidade pedida, varrendo as áreas de novo com
+    # outra semente. Entregar dois exercícios quando cinco foram pedidos é
+    # entregar menos do que o estudante pediu.
+    rodada = 1
+    ja_vistos = {i.enunciado for i in treino.itens}
+    while len(treino.itens) < quantidade and rodada <= len(areas) * 3:
+        area = areas[(rodada - 1) % len(areas)]
+        for item in treino_de_area(area, quantidade, (semente or 0) + rodada):
+            if item.enunciado not in ja_vistos and len(treino.itens) < quantidade:
+                ja_vistos.add(item.enunciado)
+                treino.itens.append(item)
+        rodada += 1
     return treino

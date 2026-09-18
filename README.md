@@ -172,10 +172,20 @@ outra preposição, acabou — nem precisa olhar a regência. Depois vêm as
 **locuções consagradas**, os casos **facultativos** (marcados como tais, sem
 fingir resposta única) e, por fim, a **regência**.
 
-Na regência está a decisão mais importante do motor: quando o verbo exige "a"
-em todos os sentidos registrados, ele conclui; quando o verbo muda de regência
-conforme o sentido — "assistir", "visar", "aspirar", "implicar" — ele **devolve
-a pergunta** em vez de chutar, porque quem decide o sentido é você.
+Na regência está a decisão mais importante do motor: quando o verbo é
+transitivo indireto puro e exige "a" em todos os sentidos registrados, ele
+conclui; quando o verbo muda de regência conforme o sentido — "assistir",
+"visar", "aspirar", "implicar" — ele **devolve a pergunta** em vez de chutar,
+porque quem decide o sentido é você. Verbo bitransitivo também não conclui:
+em "convidei a aluna", o termo colado ao verbo é o objeto direto, e tratá-lo
+como indireto acusaria de erro uma frase correta.
+
+Além de consultar o que o verbo pede, o motor confere o que a frase fez. O
+conferidor compara a preposição efetivamente usada com a registrada e acusa os
+desvios clássicos — "prefiro café **do que** chá", "obedeço **as** regras",
+"cheguei **em** casa", "namorei **com** a Ana". Ele só opina sobre verbo de
+sentido único no dicionário: onde há polissemia, quem escolhe o sentido é
+você, e o motor se cala.
 
 Também estão codificados:
 
@@ -185,7 +195,11 @@ Também estão codificados:
 - **concordância**, nas armadilhas clássicas: "haver" impessoal, "fazer"
   temporal, partícula "se" apassivadora × índice de indeterminação, "um dos que";
 - **regência verbal e nominal**, com todos os sentidos de cada verbo e um
-  exemplo para cada.
+  exemplo para cada, mais a conferência da preposição usada na frase;
+- um **léxico** de gênero e classe de palavra que sustenta os dois motores
+  acima. Quando a evidência não basta — "colega", "grama", palavra comum de
+  dois gêneros — ele responde "indeterminado" em vez de chutar, porque um
+  chute errado ali vira veredito gramatical errado lá na frente.
 
 ## Inglês em cinco dimensões
 
@@ -358,7 +372,8 @@ A implementação está em `banco.calcular_sm2()`, com testes cobrindo cada ramo
 
 ```
 app/
-  main.py            API FastAPI: 32 rotas
+  main.py            API FastAPI: 49 rotas
+  afericao.py        casos com gabarito conhecido, por área
   config.py          configuração por ambiente / .env
   schemas.py         validação de entrada e saída (Pydantic)
   texto.py           limpeza, tokenização, frases, fragmentação
@@ -377,6 +392,7 @@ app/
     contrastes.py    pares que se confundem, com o critério de decisão
   tutor/
     escada.py        os sete degraus e a política de mínima ajuda
+    treino.py        exercícios dirigidos ao erro que mais se repete
     sessao.py        sessões, tentativas, padrões de erro e fading
     tutoria.py       orquestração: verificador → degrau → resposta
     visao.py         leitura de questão fotografada, com confirmação
@@ -503,8 +519,37 @@ pipeline completo, o cache, o algoritmo SM-2, a leitura segura de expressões
 matemáticas (incluindo tentativas de injeção de código), a resolução simbólica,
 o diagnóstico de dificuldade, os geradores de questão, os motores de crase,
 regência, colocação e concordância, a avaliação de inglês, a escada de ajuda
-(incluindo a garantia de que os degraus 0 a 5 não vazam a resposta) e todos os
-endpoints HTTP.
+(incluindo a garantia de que os degraus 0 a 5 não vazam a resposta), a
+conferência de regência, o montador de treino e todos os endpoints HTTP.
+
+Há ainda um arquivo de regressões de robustez: cada teste ali reproduz uma
+falha que chegou ao código, com a entrada concreta que a disparava — bomba de
+descompressão em EPUB, bloco de trecho que estourava o tamanho pedido, palavra
+real confundida com numeração romana, questão extrativa perdida por causa de
+um acento.
+
+### Aferição: os motores estão acertando?
+
+Teste de unidade prova que o código faz o que o código diz. Isso é outra
+coisa:
+
+```bash
+python -m app.afericao              # roda tudo, taxa por área
+python -m app.afericao --area crase
+python -m app.afericao --falhas     # só o que errou
+```
+
+São 157 casos com gabarito conhecido, tirados das regras consagradas e do tipo
+de questão que cai em prova, divididos em dez áreas: crase, colocação,
+concordância, léxico, regência (dicionário e uso), inglês, assunto de
+matemática, álgebra simbólica e roteamento de matéria. O mesmo relatório está
+em `GET /api/afericao` e no painel "Bases de dados" da interface.
+
+O banco existe porque uma bateria de testes verdes não respondia à pergunta
+que importa. Quando ele foi rodado contra frases reais de prova pela primeira
+vez, quinze frases corretas eram acusadas e seis de sete erros clássicos
+passavam limpos — com todos os testes de unidade passando. Cada correção
+daquela rodada entrou aqui como caso de referência.
 
 ---
 
@@ -545,6 +590,15 @@ clique num flashcard para virar · o botão no rodapé alterna tema claro e escu
   vez de arriscar um veredito.
 - O dicionário de regência traz os verbos que caem em prova. Um verbo fora dele
   não é analisado, e o motor diz isso.
+- A conferência de regência se restringe a verbo de sentido único. Um desvio
+  em verbo polissêmico não é acusado: seria escolher o sentido no lugar de
+  quem escreveu.
+- O léxico de gênero cobre as exceções que derrubariam a heurística de
+  terminação, não o vocabulário inteiro do português. Fora delas ele responde
+  "indeterminado", e o motor que depende dele devolve a pergunta.
+- O treino dirigido sorteia do banco de aferição e do gerador paramétrico.
+  Sem histórico de erro acumulado, ele monta um treino geral em vez de fingir
+  que conhece o seu ponto fraco.
 - A leitura de questão fotografada depende do modelo de visão, então exige
   chave de API. Sem ela, digite o enunciado.
 - As APIs públicas têm limites de requisição. O cache de 6 horas existe

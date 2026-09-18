@@ -83,6 +83,16 @@ def _tex(objeto: Any) -> str:
     return f"${sp.latex(sp.nsimplify(objeto))}$"
 
 
+def _equacao(expressao: Any) -> str:
+    """LaTeX de `expressao = 0`, com os sinais já simplificados.
+
+    Montar a equação por interpolação de string produzia coisas como
+    `x^2 - (-8)x + (12) = 0`. Deixar o SymPy escrever dá `x^2 + 8x + 12 = 0`,
+    que é como a questão apareceria numa prova.
+    """
+    return f"${sp.latex(sp.expand(expressao))} = 0$"
+
+
 # --------------------------------------------------------------------------
 # Geradores parametricos
 # --------------------------------------------------------------------------
@@ -92,10 +102,11 @@ def _girard(sorteio: random.Random) -> dict[str, Any]:
     r1, r2 = sorteio.sample([-6, -5, -4, -3, -2, 2, 3, 4, 5, 6, 7], 2)
     soma, produto = sp.Integer(r1 + r2), sp.Integer(r1 * r2)
     certo = soma**2 - 2 * produto
+    x = sp.Symbol("x")
     return {
         "enunciado": (
             f"Sejam $r_1$ e $r_2$ as raízes da equação "
-            f"$x^2 - ({soma})x + ({produto}) = 0$. "
+            f"{_equacao(x**2 - soma * x + produto)}. "
             f"O valor de $r_1^2 + r_2^2$ é:"
         ),
         "alternativas": [
@@ -116,7 +127,8 @@ def _girard(sorteio: random.Random) -> dict[str, Any]:
         "solucao": (
             f"Por Girard, $r_1 + r_2 = {soma}$ e $r_1 r_2 = {produto}$. "
             f"Como $r_1^2 + r_2^2 = (r_1+r_2)^2 - 2r_1r_2$, o valor é "
-            f"${soma}^2 - 2\\cdot({produto}) = {sp.latex(certo)}$."
+            f"${sp.latex(soma)}^2 - 2\\cdot\\left({sp.latex(produto)}\\right) "
+            f"= {sp.latex(certo)}$."
         ),
         "topicos": ["polinômios", "relações de Girard"],
         "dificuldade": 2,
