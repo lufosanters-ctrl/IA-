@@ -555,8 +555,16 @@ daquela rodada entrou aqui como caso de referência.
 
 ## Atalhos
 
-`Ctrl/Cmd + K` foca a busca · clique num `[n]` para pular à referência ·
-clique num flashcard para virar · o botão no rodapé alterna tema claro e escuro.
+`Ctrl/Cmd + K` abre a paleta de comandos · clique num `[n]` para pular à
+referência · clique num flashcard para virar · o botão no rodapé alterna tema
+claro e escuro.
+
+A interface é navegável só pelo teclado: as abas respondem às setas, Home e
+End; a paleta prende o foco enquanto está aberta, fecha com Esc de qualquer
+ponto e devolve o foco a quem a abriu; as duas áreas de envio (livros e foto
+da questão) são alcançáveis por Tab e acionadas com Enter ou Espaço. Sem o
+KaTeX — offline, ou com o CDN bloqueado — as fórmulas viram texto legível com
+expoentes e índices Unicode: `x^2` aparece como x² e `r_1` como r₁.
 
 ---
 
@@ -579,6 +587,19 @@ clique num flashcard para virar · o botão no rodapé alterna tema claro e escu
 - A verificação simbólica só alcança o que consegue ler como equação. Em
   problema de geometria, contagem ou demonstração, ela não se aplica — e o
   Núcleo diz isso em vez de fingir que conferiu.
+- A checagem por substituição confere a raiz na equação que o motor LEU, não
+  na pergunta que o enunciado FEZ. Por isso, quando o enunciado traz uma
+  condição em prosa que a leitura não aplica — "em graus", "no intervalo
+  [0, 4π]", "sabendo que x < 0", "n natural" — o resultado sai como "o que a
+  álgebra leu", sem selo de conferido, com a condição que faltou escrita por
+  extenso. O mesmo vale quando a pergunta não é pelas raízes: em "calcule
+  a² + b²", as raízes não são a resposta.
+- "log x" sem base escrita é lido como base 10, a convenção do ensino
+  brasileiro, e uma base declarada no enunciado é respeitada. "ln" continua
+  logaritmo natural.
+- O confronto entre a sua resposta e a da álgebra compara números escritos no
+  texto. Diante de raiz simbólica (5π/3, √2) ele não opina, em vez de acusar
+  divergência onde não há.
 - Verificação não é demonstração. O motor confirmar uma identidade em doze
   pontos aleatórios é evidência forte, não prova. Quando o enunciado pede
   demonstração, o que vale é o argumento escrito.
@@ -598,7 +619,14 @@ clique num flashcard para virar · o botão no rodapé alterna tema claro e escu
   "indeterminado", e o motor que depende dele devolve a pergunta.
 - O treino dirigido sorteia do banco de aferição e do gerador paramétrico.
   Sem histórico de erro acumulado, ele monta um treino geral em vez de fingir
-  que conhece o seu ponto fraco.
+  que conhece o seu ponto fraco. "Você vem cometendo" exige pelo menos duas
+  ocorrências: uma não é padrão.
+- Sem chave de API, a tentativa que você escreve no modo matemática é
+  comparada com a álgebra, não comentada linha a linha. O Núcleo diz isso em
+  vez de aceitar o texto em silêncio.
+- O painel de domínio só mostra taxa quando houve tentativa julgada. Onde o
+  sistema não conseguiu julgar, ele escreve "sem tentativa julgada" — não
+  "0% de acerto", que seria afirmar um fracasso que ninguém mediu.
 - A leitura de questão fotografada depende do modelo de visão, então exige
   chave de API. Sem ela, digite o enunciado.
 - As APIs públicas têm limites de requisição. O cache de 6 horas existe

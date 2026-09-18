@@ -305,6 +305,14 @@
     if (!pergunta) { avisar("Escreva uma pergunta primeiro.", "erro"); return; }
 
     const botao = $("#botao-buscar");
+    // Uma pesquisa pode levar dezenas de segundos. Um segundo Enter durante
+    // esse tempo não fazia absolutamente nada — nem toast, nem indicação de
+    // que o campo estava bloqueado, e o texto novo ficava no campo enquanto a
+    // resposta antiga era escrita.
+    if (botao.disabled) {
+      avisar("Uma pesquisa já está em andamento. Aguarde ela terminar.", "info");
+      return;
+    }
     botao.disabled = true;
     $("#cabecalho-inicial").style.display = "none";
     $("#sugestoes").hidden = true;

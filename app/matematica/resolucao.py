@@ -165,14 +165,22 @@ def _fatos_simbolicos(analise: AnaliseSimbolica) -> str:
     return "\n".join(linhas)
 
 
-def _resolucao_simbolica(analise: AnaliseSimbolica, diagnostico: Diagnostico) -> str:
+def _resolucao_simbolica(analise: AnaliseSimbolica, diagnostico: Diagnostico,
+                         tentativa: str = "") -> str:
     """Resposta construida so com o sistema algebrico, sem modelo de linguagem.
 
     Nao e uma explicacao didatica, mas e matematica correta e verificada — bem
     mais util do que um texto plausivel sem conferencia.
     """
     linhas = ["## Ideia central", ""]
-    if analise.resolveu:
+    if analise.resolveu and analise.ressalvas:
+        linhas.append(
+            f"Assunto: {diagnostico.topico_nome}. O sistema de álgebra "
+            "computacional resolveu a equação que conseguiu ler — mas o "
+            "enunciado traz uma condição que ele não aplica sozinho, e por "
+            "isso o que vem abaixo é uma leitura parcial, não a resposta."
+        )
+    elif analise.resolveu:
         linhas.append(
             f"Assunto: {diagnostico.topico_nome}. O enunciado traz equação(ões) "
             "explícita(s), então o sistema de álgebra computacional resolveu e "
@@ -253,6 +261,20 @@ def _resolucao_simbolica(analise: AnaliseSimbolica, diagnostico: Diagnostico) ->
             "explicada."
         )
 
+    # A tentativa do estudante chega pela API e, sem modelo de linguagem, era
+    # descartada sem uma palavra. Dizer que não dá para comentá-la custa uma
+    # linha e evita que ele ache que foi lida e aprovada.
+    if tentativa.strip():
+        linhas += [
+            "",
+            "## Sobre a sua tentativa",
+            "",
+            "Sem chave de API configurada, não consigo comentar o seu "
+            "raciocínio linha a linha — isso exige o modelo de linguagem. O "
+            "que dá para fazer sozinho é comparar o seu resultado com o da "
+            "álgebra acima, e é isso que o endpoint de conferência faz.",
+        ]
+
     if ressalvas:
         rodape = (
             "> _Modo simbólico, leitura parcial: a álgebra resolveu a equação "
@@ -300,7 +322,9 @@ async def resolver(problema: Problema) -> Resolucao:
 
     motor = obter_motor()
     if not motor.disponivel:
-        resolucao.texto = _resolucao_simbolica(analise, diagnostico)
+        resolucao.texto = _resolucao_simbolica(
+            analise, diagnostico, problema.tentativa
+        )
         resolucao.modo = "simbolico"
         resolucao.aviso = (
             "Sem ANTHROPIC_API_KEY configurada: resolução feita por álgebra "
@@ -358,7 +382,9 @@ async def resolver(problema: Problema) -> Resolucao:
         resolucao.modo = "neural"
         resolucao.passes.append("resolução")
     except ErroModelo as exc:
-        resolucao.texto = _resolucao_simbolica(analise, diagnostico)
+        resolucao.texto = _resolucao_simbolica(
+            analise, diagnostico, problema.tentativa
+        )
         resolucao.modo = "simbolico"
         resolucao.aviso = f"O modelo falhou ({exc}); caí para a resolução simbólica."
         resolucao.duracao_ms = int((asyncio.get_running_loop().time() - inicio) * 1000)

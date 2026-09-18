@@ -511,11 +511,9 @@ def _ajuda_matematica(nivel: int, contexto: ContextoVerificado) -> str:
             "Escreva as duas listas antes da primeira conta."
         )
     if nivel == 1:
-        return (
-            "Que estrutura este problema esconde? Procure simetria, fatoração, "
-            "invariante, substituição que simplifique ou uma leitura "
-            "geométrica.\n\nQual delas parece estar aqui?"
-        )
+        # A pergunta diagnóstica precisa morder ESTE problema. A mesma frase
+        # para todo enunciado de matemática não força raciocínio nenhum.
+        return _pergunta_que_destrava(analise, diagnostico, nome)
     if nivel == 2 and estrategias:
         return (
             f"Em problemas de {nome.lower()}, o caminho que mais resolve é: "
@@ -567,6 +565,68 @@ def _ajuda_matematica(nivel: int, contexto: ContextoVerificado) -> str:
         "Não consegui ler uma equação explícita neste enunciado, então a "
         f"resolução automática não se aplica. Ao chegar a um resultado, "
         f"confira assim:\n{lista}"
+    )
+
+
+# A pergunta do degrau 1, por assunto: o ponto em que aquele tipo de problema
+# costuma destravar.
+_PERGUNTA_POR_TOPICO: dict[str, str] = {
+    "polinomios": "Você precisa mesmo achar as raízes, ou soma e produto já "
+                  "respondem o que foi pedido?",
+    "complexos": "Qual forma facilita esta conta: algébrica, trigonométrica "
+                 "ou exponencial? A escolha decide o trabalho todo.",
+    "trigonometria": "Quantas voltas do ciclo cabem no intervalo pedido — e "
+                     "em quantos quadrantes essa função repete o valor?",
+    "geometria_plana": "Que figura auxiliar falta no seu desenho? Uma altura, "
+                       "um raio ou uma diagonal costuma revelar a relação.",
+    "geometria_analitica": "O que é mais curto aqui: trabalhar com a equação "
+                           "ou com a definição geométrica do lugar?",
+    "geometria_espacial": "Qual seção plana desse sólido transforma o "
+                          "problema num de geometria plana?",
+    "matrizes": "Dá para responder sem calcular tudo — por propriedade do "
+                "determinante ou por escalonamento parcial?",
+    "combinatoria": "A ordem importa nesta contagem? E há repetição? Essas "
+                    "duas respostas escolhem a fórmula sozinhas.",
+    "probabilidade": "Qual é o espaço amostral inteiro, e os eventos são "
+                     "independentes ou um condiciona o outro?",
+    "calculo": "A função é contínua no ponto? Se for, o limite é só "
+               "substituir; se não for, o que exatamente falha ali?",
+    "sequencias": "É aritmética ou geométrica — e o problema pede um termo, "
+                  "a soma finita ou o limite da soma?",
+    "logaritmos": "Qual é a condição de existência aqui, e ela elimina alguma "
+                  "das soluções que você vai encontrar?",
+    "teoria_numeros": "Que resto essa expressão deixa? Trabalhar em módulo "
+                      "costuma resolver o que a fatoração não resolve.",
+}
+
+
+def _pergunta_que_destrava(analise: dict[str, Any], diagnostico: dict[str, Any],
+                           nome: str) -> str:
+    """UMA pergunta, escolhida pelo que este problema tem de concreto."""
+    equacoes = analise.get("equacoes_latex") or analise.get("equacoes") or []
+    ressalvas = analise.get("ressalvas") or []
+
+    # Condição em prosa é o ponto mais provável de tropeço, e é específica
+    # deste enunciado: perguntar por ela vale mais que qualquer genérico.
+    if ressalvas:
+        return (
+            f"Releia o enunciado procurando a condição que restringe a "
+            f"resposta — {ressalvas[0]}.\n\nO que ela elimina do conjunto "
+            "que você vai encontrar?"
+        )
+    if len(equacoes) >= 2:
+        return (
+            "Há mais de uma relação no enunciado. Elas são independentes, ou "
+            "uma sai da outra?\n\nSe forem independentes, quantas incógnitas "
+            "você consegue determinar com elas?"
+        )
+    pergunta = _PERGUNTA_POR_TOPICO.get(diagnostico.get("topico", ""))
+    if pergunta:
+        return pergunta
+    return (
+        f"Que estrutura este problema de {nome.lower()} esconde? Procure "
+        "simetria, fatoração, invariante, substituição que simplifique ou "
+        "uma leitura geométrica.\n\nQual delas parece estar aqui?"
     )
 
 
