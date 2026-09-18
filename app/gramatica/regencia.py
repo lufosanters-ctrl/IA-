@@ -254,6 +254,64 @@ REGENCIA_VERBAL: dict[str, tuple[Sentido, ...]] = {
         _s("acontecer", "intransitivo", "", "Sucedeu um imprevisto."),
     ),
     "sobrevir": (_s("acontecer depois", "indireto", "a", "Sobreveio-lhe uma crise."),),
+
+    # Verbos de alta frequencia em prova que faltavam no dicionario. Sem eles,
+    # frases classicas como "dirigiu-se a diretora" ficavam sem veredito.
+    "dirigir": (
+        _s("encaminhar-se, falar a alguém (dirigir-se)", "indireto", "a",
+           "Dirigiu-se à diretora com respeito.",
+           "Na forma pronominal 'dirigir-se', a preposição 'a' é obrigatória."),
+        _s("conduzir, guiar", "direto", "", "Dirigiu o carro a noite toda."),
+        _s("chefiar, administrar", "direto", "", "Dirige a empresa há dez anos."),
+    ),
+    "recorrer": (
+        _s("apelar, buscar ajuda", "indireto", "a",
+           "Recorreu à professora quando empacou.",
+           "Sentido cobrado em prova: 'recorrer A alguém ou A algo'."),
+        _s("percorrer de novo", "direto", "", "Recorreu o caminho de volta."),
+    ),
+    "comparecer": (
+        _s("estar presente", "indireto", "a/em",
+           "Compareceu à reunião na hora marcada.",
+           "'A' é a forma preferida na norma-padrão; 'em' também é registrada."),
+    ),
+    "entregar": (
+        _s("passar às mãos de alguém", "direto e indireto", "a",
+           "Entregou o trabalho à professora.",
+           "Objeto direto é a coisa entregue; indireto, quem recebe."),
+    ),
+    "atribuir": (
+        _s("imputar, conferir", "direto e indireto", "a",
+           "Atribuiu o erro à pressa."),
+    ),
+    "pertencer": (
+        _s("ser propriedade de", "indireto", "a", "O livro pertence à biblioteca."),
+    ),
+    "dedicar": (
+        _s("consagrar, destinar", "direto e indireto", "a",
+           "Dedicou a tese à orientadora."),
+    ),
+    "agradecer": (
+        _s("manifestar gratidão", "direto e indireto", "a",
+           "Agradeceu o convite à anfitriã.",
+           "Agradece-se ALGO A ALGUÉM: a coisa é objeto direto, a pessoa, "
+           "indireto. 'Agradecer a alguém' sozinho também é correto."),
+    ),
+    "assemelhar": (
+        _s("ser parecido (assemelhar-se)", "indireto", "a",
+           "O caso assemelha-se ao anterior."),
+    ),
+    "aderir": (
+        _s("juntar-se, apoiar", "indireto", "a", "Aderiu à greve no segundo dia."),
+    ),
+    "renunciar": (
+        _s("abrir mão", "indireto", "a", "Renunciou ao cargo em janeiro.",
+           "Na norma-padrão, renuncia-se A algo, não 'renunciar algo'."),
+    ),
+    "sobreviver": (
+        _s("continuar vivo depois de", "indireto", "a",
+           "Sobreviveu à tempestade."),
+    ),
 }
 
 # --------------------------------------------------------------------------

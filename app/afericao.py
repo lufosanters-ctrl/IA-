@@ -100,6 +100,18 @@ CASOS_CRASE: tuple[Caso, ...] = (
          "“escola” é feminino; falta saber a regência de “levar”"),
     Caso("crase", "Comprei o carro à vista.", "obrigatoria",
          "locução adverbial fora da posição de sujeito"),
+    Caso("crase", "Refiro-me à jornalista que escreveu.", "depende_da_regencia",
+         "comum de dois gêneros: quem decide é o referente, não a regra"),
+    Caso("crase", "Dirigiu-se à atleta vencedora.", "depende_da_regencia",
+         "o adjetivo resolve o gênero; “dirigir” muda de regência por sentido"),
+    Caso("crase", "Dirigiu o carro a noite toda.", "proibida",
+         "“a noite toda” é adjunto de tempo, não a locução “à noite”"),
+    Caso("crase", "Estudou a tarde inteira sem parar.", "proibida",
+         "o quantificador marca o adjunto de tempo"),
+    Caso("crase", "Compareceu à reunião de pais.", "obrigatoria",
+         "“comparecer” rege “a” em todos os sentidos registrados"),
+    Caso("crase", "Entreguei o livro à colega nova.", "depende_da_regencia",
+         "adjetivo resolve o gênero; falta a regência de “entregar”"),
 )
 
 # Colocação: a posição que a norma-padrão exige.
@@ -275,6 +287,18 @@ CASOS_LEXICO: tuple[Caso, ...] = (
     Caso("lexico", "verbo:escolher", True, "infinitivo em -er"),
     Caso("lexico", "verbo:pôr", True, "infinitivo em -or"),
     Caso("lexico", "verbo:ser", True, "infinitivo irregular"),
+    Caso("lexico", "contexto:a colega nova chegou|1", "feminino",
+         "o adjetivo resolve o comum de dois gêneros"),
+    Caso("lexico", "contexto:o colega novo chegou|1", "masculino",
+         "o adjetivo resolve o comum de dois gêneros"),
+    Caso("lexico", "contexto:a atleta vencedora subiu|1", "feminino",
+         "adjetivo em -ora é feminino"),
+    Caso("lexico", "contexto:a colega de turma|1", "comum",
+         "“de” fecha o sintagma: “turma” não concorda com “colega”"),
+    Caso("lexico", "contexto:a jornalista que escreveu|1", "comum",
+         "sem adjetivo, quem decide é o referente"),
+    Caso("lexico", "contexto:a casa nova|1", "feminino",
+         "palavra de gênero fixo não depende do contexto"),
 )
 
 # Matéria que o roteador do tutor deve escolher.
@@ -373,10 +397,18 @@ def _consulta_lexico(entrada: str) -> Any:
     """`genero:palavra` devolve o gênero; `verbo:palavra`, se é infinitivo."""
     from .gramatica.lexico import e_verbo_no_infinitivo, genero
 
-    tipo, _, palavra = entrada.partition(":")
+    import re
+
+    from .gramatica.lexico import genero_no_contexto
+
+    tipo, _, resto = entrada.partition(":")
     if tipo == "genero":
-        return genero(palavra)
-    return e_verbo_no_infinitivo(palavra)
+        return genero(resto)
+    if tipo == "contexto":
+        frase, _, posicao = resto.rpartition("|")
+        palavras = re.findall(r"[A-Za-zÀ-ÿ]+", frase)
+        return genero_no_contexto(palavras, int(posicao))
+    return e_verbo_no_infinitivo(resto)
 
 
 def _regencia_desviou(frase: str) -> bool:

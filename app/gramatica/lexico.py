@@ -234,6 +234,56 @@ def genero(palavra: str) -> str:
     return "indeterminado"
 
 
+# Um substantivo comum de dois generos nao diz o proprio genero, mas a frase
+# em volta costuma dizer. Estas terminacoes marcam o adjetivo que concorda.
+_FEM_ADJETIVO = ("a", "as", "ora", "oras", "esa", "esas", "ina", "inas")
+_MASC_ADJETIVO = ("o", "os", "or", "ores", "es", "ao", "aos")
+
+# Adverbios de intensidade ficam ENTRE o substantivo e o adjetivo ("colega
+# muito nova"): passar por cima deles preserva a concordancia.
+_INTENSIFICADORES = {
+    "muito", "pouco", "bem", "bastante", "tao", "mais", "menos", "meio",
+    "demasiado", "extremamente", "particularmente", "especialmente",
+}
+
+
+def genero_no_contexto(palavras: list[str], indice: int) -> str:
+    """Genero da palavra na posicao `indice`, usando a frase para desempatar.
+
+    Para comum de dois generos ("colega", "atleta", "jornalista"), a palavra
+    sozinha nao decide — mas o adjetivo que a acompanha decide: "a colega
+    nova", "a atleta vencedora". Sem esse apoio, devolve ``comum``, que e
+    diferente de ``indeterminado``: aqui sabemos que a palavra ACEITA artigo
+    feminino, so nao sabemos se e esse o caso.
+    """
+    if not 0 <= indice < len(palavras):
+        return "indeterminado"
+    palavra = palavras[indice]
+    direto = genero(palavra)
+    if not e_comum_de_dois(palavra):
+        return direto
+
+    for passo in (1, 2):
+        if indice + passo >= len(palavras):
+            break
+        vizinha = normalizado(palavras[indice + passo])
+        if not vizinha:
+            break
+        if vizinha in _INTENSIFICADORES:
+            continue
+        # Preposicao, conjuncao ou relativo fecham o sintagma: o que vem
+        # depois e outro nucleo, nao um adjetivo que concorda com este.
+        # Sem isso, "a colega de turma" concordava com "turma".
+        if len(vizinha) < 3 or e_verbo_no_infinitivo(vizinha):
+            break
+        if vizinha.endswith(_FEM_ADJETIVO):
+            return "feminino"
+        if vizinha.endswith(_MASC_ADJETIVO):
+            return "masculino"
+        break
+    return "comum"
+
+
 def e_verbo_no_infinitivo(palavra: str) -> bool:
     """Reconhece infinitivos sem confundir substantivos como `mulher`.
 

@@ -35,6 +35,7 @@ from .lexico import (
     e_comum_de_dois,
     e_numeral_cardinal,
     e_tratamento,
+    genero_no_contexto,
     e_plural,
     e_verbo_no_infinitivo,
     genero,
@@ -180,6 +181,15 @@ def _tem_acento(palavra: str) -> bool:
     return "à" in palavra.lower()
 
 
+# Quantificadores que transformam a locução em adjunto de tempo: "a noite
+# toda" não é "à noite", é "a noite inteira" — objeto, sem preposição.
+# Só as formas FEMININAS SINGULARES entram: as locuções ambíguas de duas
+# palavras têm todas núcleo feminino singular ("a noite", "a tarde"), e o
+# quantificador precisa concordar com ele. Sem essa exigência, "trabalha à
+# noite todos os dias" era lido como adjunto de tempo, porque "todos" casava.
+_QUANTIFICADORES = {"toda", "inteira", "seguinte", "passada", "anterior"}
+
+
 def _locucao_a_partir_de(palavras: list[str], indice: int) -> tuple[str, str, bool] | None:
     """Procura, a partir do 'a', a locução mais longa que casa."""
     for tamanho in (4, 3, 2):
@@ -187,6 +197,15 @@ def _locucao_a_partir_de(palavras: list[str], indice: int) -> tuple[str, str, bo
             normalizado(p) for p in palavras[indice: indice + tamanho]
         )
         if trecho in LOCUCOES_COM_CRASE:
+            depois = (normalizado(palavras[indice + tamanho])
+                      if indice + tamanho < len(palavras) else "")
+            # "a noite toda" / "a tarde inteira": o quantificador transforma
+            # a locução em adjunto de tempo, que não vem regido de preposição.
+            # Só vale para locução de duas palavras: em "à frente de todos",
+            # "todos" é complemento da locução, não quantificador de "frente".
+            if (tamanho == 2 and trecho in LOCUCOES_AMBIGUAS
+                    and depois in _QUANTIFICADORES):
+                return trecho, "adjunto adverbial de tempo, sem preposição", False
             return trecho, LOCUCOES_COM_CRASE[trecho], True
         if trecho in LOCUCOES_SEM_CRASE:
             return trecho, LOCUCOES_SEM_CRASE[trecho], False
@@ -497,7 +516,43 @@ def analisar_crase(frase: str) -> list[OcorrenciaCrase]:
             continue
 
         # 6) Sobrou a regência: a segunda condição já está satisfeita.
-        genero_seguinte = genero(seguinte)
+        # Comum de dois gêneros ("colega", "atleta", "jornalista") não decide
+        # sozinho — mas o adjetivo que o acompanha decide, e quando nem isso
+        # existe a resposta é do estudante, não do motor.
+        genero_seguinte = genero_no_contexto(palavras, indice + 1)
+        if genero_seguinte == "comum":
+            # Com um verbo que rege "a" sem ambiguidade, a preposição já está
+            # garantida: o acento passa a depender só de quem é a pessoa. Aí
+            # as duas grafias são legítimas, e nenhuma é erro.
+            regente = _regido_por(indice, posicoes_regentes)
+            if regente and not _regido_por(indice, posicoes_ambiguas):
+                explicacao = (
+                    f"“{regente}” exige a preposição “a”, então essa metade "
+                    f"está resolvida. Mas “{seguinte}” é comum de dois "
+                    "gêneros: se a pessoa é “a " + seguinte + "”, há artigo e "
+                    "o acento entra; se é “o " + seguinte + "”, não há. As "
+                    "duas grafias são corretas — muda o referente, não a regra."
+                )
+                correto: bool | None = True
+            else:
+                explicacao = (
+                    f"“{seguinte}” é comum de dois gêneros: o artigo é que "
+                    "define se a pessoa é “o” ou “a”. Falta decidir isso e, "
+                    "depois, se o termo anterior exige a preposição “a”."
+                )
+                correto = None
+            ocorrencias.append(OcorrenciaCrase(
+                escrito=bruta, termo_seguinte=seguinte, contexto=contexto,
+                situacao=DEPENDE, forma_correta="depende do gênero do referente",
+                regra="substantivo comum de dois gêneros",
+                explicacao=explicacao,
+                correto=correto, verbos_regentes=regentes,
+                pergunta_guia=(
+                    f"A pessoa de quem a frase fala é “o {seguinte}” ou "
+                    f"“a {seguinte}”?"
+                ),
+            ))
+            continue
         if genero_seguinte != "feminino":
             continue
 
