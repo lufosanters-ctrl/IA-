@@ -53,6 +53,18 @@ atalho da Microsoft Store, não o Python. Instale pelo
 [site oficial](https://www.python.org/downloads/windows/) e marque
 **"Add python.exe to PATH"** na primeira tela do instalador.
 
+Duas recomendações para o Windows, ambas por causa do OneDrive, que no
+Windows 11 sincroniza "Documentos" e a Área de Trabalho por padrão:
+
+- **Clone fora da pasta sincronizada** — algo como `C:\dev\IA-`. O banco de
+  dados usa um arquivo auxiliar mapeado em memória que o sincronizador
+  atrapalha, o que deixa a busca mais lenta e pode produzir travas. A
+  plataforma funciona sincronizada e avisa no log quando detecta o caso, mas
+  local é melhor.
+- **Se editar o `.env`, não use aspas duplas em caminhos.** Entre aspas, o
+  `\n` de uma pasta como `\nome` vira quebra de linha. Escreva
+  `C:\Users\seu-nome\livros` sem aspas, ou use barras normais.
+
 ### Linux e macOS
 
 ```bash

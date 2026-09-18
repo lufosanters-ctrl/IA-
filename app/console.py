@@ -168,3 +168,39 @@ def escrever(texto: str = "", fluxo: TextIO | None = None) -> None:
     except UnicodeEncodeError:
         # Ultimo recurso: ASCII puro. Melhor um acento perdido que um traceback.
         print(texto.encode("ascii", errors="replace").decode("ascii"), file=destino)
+
+
+# --------------------------------------------------------------------------
+# SQLite em pasta sincronizada
+# --------------------------------------------------------------------------
+
+_JA_AVISADO: set[str] = set()
+
+
+def conferir_journal(conexao: Any, caminho: Any) -> str:
+    """Aplica o WAL e avisa, uma vez, quando a pasta nao o permite.
+
+    O `PRAGMA journal_mode` nao levanta erro quando falha: ele devolve o modo
+    que conseguiu aplicar. Em pasta de rede ou sincronizada pelo OneDrive —
+    que no Windows 11 e o destino padrao de "Documentos" — o WAL depende de um
+    arquivo mapeado em memoria que o sincronizador atrapalha, e a aplicacao
+    passa a rodar em modo DELETE sem ninguem saber. Saber disso e a explicacao
+    de um "database is locked" que aparece do nada.
+    """
+    import logging
+
+    linha = conexao.execute("PRAGMA journal_mode = WAL").fetchone()
+    modo = str(linha[0] if linha else "").lower()
+    chave = str(caminho)
+    if modo != "wal" and chave not in _JA_AVISADO:
+        _JA_AVISADO.add(chave)
+        logging.getLogger("nucleo").warning(
+            "o banco %s está em modo %s, não WAL. Isso costuma acontecer em "
+            "pasta de rede ou sincronizada (OneDrive, Dropbox, Google Drive). "
+            "Funciona, mas fica mais lento e mais sujeito a travas. Para "
+            "evitar, guarde o projeto numa pasta local, por exemplo "
+            "C:\\dev\\IA-, ou aponte CAMINHO_BANCO para fora da pasta "
+            "sincronizada.",
+            chave, modo or "desconhecido",
+        )
+    return modo

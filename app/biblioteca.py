@@ -21,6 +21,7 @@ from typing import Any, Iterator
 from .config import obter_config
 from .livros import ErroExtracao, extrair, impressao_digital
 from .texto import dividir_em_trechos, normalizar, tokenizar, truncar
+from .console import conferir_journal
 
 log = logging.getLogger("nucleo.biblioteca")
 
@@ -98,7 +99,13 @@ def conectar() -> Iterator[sqlite3.Connection]:
     conexao = sqlite3.connect(caminho, timeout=20)
     conexao.row_factory = sqlite3.Row
     conexao.execute("PRAGMA foreign_keys = ON")
-    conexao.execute("PRAGMA journal_mode = WAL")
+    # O WAL precisa de um arquivo -shm mapeado em memória na mesma pasta.
+    # Em pasta de rede, ou sincronizada pelo OneDrive — que no Windows 11 é o
+    # destino padrão de "Documentos" —, o SQLite não consegue e cai para
+    # outro modo SEM levantar erro: ele devolve o modo que conseguiu aplicar.
+    # Ler o retorno é a única forma de saber, e vale avisar, porque é a
+    # explicação de um "database is locked" que aparece do nada.
+    conferir_journal(conexao, caminho)
     try:
         if not _esquema_pronto:
             conexao.executescript(ESQUEMA)

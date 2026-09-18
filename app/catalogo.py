@@ -196,7 +196,10 @@ async def baixar_wikilivro(
     destino = destino or diretorio_livros()
     destino.mkdir(parents=True, exist_ok=True)
     arquivo = destino / _nome_seguro(titulo, ".md")
-    arquivo.write_text(conteudo, encoding="utf-8")
+    # `newline="\n"`: em modo texto o Windows traduziria cada \n para
+    # \r\n, e o mesmo livro teria impressão digital diferente em cada
+    # sistema — a deduplicação deixaria de reconhecê-lo.
+    arquivo.write_text(conteudo, encoding="utf-8", newline="\n")
     url = f"https://pt.wikibooks.org/wiki/{titulo.replace(' ', '_')}"
     return arquivo, titulo, url
 
@@ -251,7 +254,10 @@ async def baixar_gutenberg(
     destino = destino or diretorio_livros()
     destino.mkdir(parents=True, exist_ok=True)
     arquivo = destino / _nome_seguro(titulo, ".txt")
-    arquivo.write_text(conteudo, encoding="utf-8")
+    # `newline="\n"`: em modo texto o Windows traduziria cada \n para
+    # \r\n, e o mesmo livro teria impressão digital diferente em cada
+    # sistema — a deduplicação deixaria de reconhecê-lo.
+    arquivo.write_text(conteudo, encoding="utf-8", newline="\n")
     url = f"https://www.gutenberg.org/ebooks/{livro.get('id', '')}"
     return arquivo, titulo, url
 

@@ -69,10 +69,41 @@ class Configuracao(BaseSettings):
         return RAIZ / "web"
 
 
+class ErroDeConfiguracao(RuntimeError):
+    """Algo no .env impede a plataforma de subir."""
+
+
+def _conferir_caminho(rotulo: str, variavel: str, caminho: Path) -> None:
+    """Recusa caminho corrompido, dizendo onde arrumar.
+
+    O caso real é do Windows. Um caminho tem barra invertida e espaços, e
+    escrever `DIRETORIO_BIBLIOTECA="C:\\Users\\nome\\livros"` entre aspas
+    duplas é o reflexo natural. Só que o leitor de .env interpreta sequências
+    de escape dentro de aspas: `\n` de "\nome" vira uma QUEBRA DE LINHA, e o
+    caminho chega aqui partido ao meio. O `mkdir` seguinte falha com um erro
+    do sistema que não menciona o .env, e o servidor não sobe.
+    """
+    texto = str(caminho)
+    if any(ord(c) < 32 for c in texto):
+        raise ErroDeConfiguracao(
+            f"{rotulo} tem caractere de controle: {texto!r}.\n\n"
+            f"No arquivo .env, escreva {variavel} SEM aspas duplas:\n"
+            f"    {variavel}=C:\\Users\\seu-nome\\livros\n"
+            "ou com barras normais, que o Windows também aceita:\n"
+            f"    {variavel}=C:/Users/seu-nome/livros\n\n"
+            "Entre aspas duplas, o \\n de uma pasta como \\nome vira quebra "
+            "de linha."
+        )
+
+
 @lru_cache(maxsize=1)
 def obter_config() -> Configuracao:
     """Retorna a configuracao (carregada uma unica vez)."""
     cfg = Configuracao()
+    _conferir_caminho("o caminho do banco", "CAMINHO_BANCO", cfg.caminho_banco)
+    _conferir_caminho(
+        "o diretório da biblioteca", "DIRETORIO_BIBLIOTECA", cfg.diretorio_biblioteca
+    )
     cfg.caminho_banco.parent.mkdir(parents=True, exist_ok=True)
     cfg.diretorio_biblioteca.mkdir(parents=True, exist_ok=True)
     return cfg

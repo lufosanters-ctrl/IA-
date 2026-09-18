@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import mimetypes
 from uuid import uuid4
 from contextlib import asynccontextmanager
 from typing import Any
@@ -412,7 +413,13 @@ async def biblioteca_enviar(
         # Gravar em arquivo temporario e so depois renomear: escrever direto
         # sobre `destino/nome` truncava um livro ja indexado, e o `unlink` do
         # caminho de erro apagava o original do estudante.
-        temporario = destino / f".{nome}.parcial"
+        # Nome único por requisição. Com o nome do livro, dois envios do mesmo
+        # arquivo — duas abas, ou reenvio antes de terminar — usariam o mesmo
+        # caminho, e o laço é assíncrono: o `await` de leitura cede o controle
+        # e as duas requisições se intercalam de verdade. No Windows, arquivo
+        # aberto por outro processo não pode ser renomeado nem apagado, então
+        # a colisão vira "Acesso negado" e deixa um .parcial órfão na pasta.
+        temporario = destino / f".{uuid4().hex}.parcial"
         tamanho = 0
         try:
             with open(temporario, "wb") as saida:
@@ -846,6 +853,24 @@ async def afericao_do_sistema(area: str = Query(default="")) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 # Interface web
 # --------------------------------------------------------------------------
+
+# O Starlette resolve o Content-Type por `mimetypes.guess_type`. No Windows,
+# `mimetypes.init()` lê o registro (HKEY_CLASSES_ROOT) e SOBRESCREVE o mapa
+# embutido, e é comum um instalador de terceiro ter deixado ".css" como
+# "text/plain". Em modo padrão — que é o nosso, a página declara DOCTYPE — o
+# navegador recusa folha de estilo que não venha como "text/css": a interface
+# abriria inteira sem estilo, sem erro nenhum no servidor.
+for _tipo, _extensao in (
+    ("text/css", ".css"),
+    ("text/javascript", ".js"),
+    ("application/javascript", ".mjs"),
+    ("image/svg+xml", ".svg"),
+    ("application/json", ".json"),
+    ("font/woff2", ".woff2"),
+    ("text/html", ".html"),
+):
+    mimetypes.add_type(_tipo, _extensao)
+
 
 if cfg.diretorio_web.exists():
     app.mount(

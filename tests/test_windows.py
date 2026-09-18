@@ -39,12 +39,32 @@ def test_caractere_proibido_nunca_sobra_no_nome(bruto):
 
 
 @pytest.mark.parametrize("reservado", RESERVADOS)
-@pytest.mark.parametrize("extensao", ["", ".pdf", ".txt"])
+@pytest.mark.parametrize("extensao", ["", ".pdf", ".txt", ".tar.gz", ".old.pdf"])
 def test_nome_reservado_do_ms_dos_e_desviado(reservado, extensao):
-    """"CON.pdf" falha no Windows com qualquer extensão."""
+    """"CON.pdf" falha no Windows com qualquer extensão, simples ou composta.
+
+    O Windows resolve o nome de dispositivo pelo segmento antes do PRIMEIRO
+    ponto, então "CON.tar.gz" também é o console.
+    """
     seguro = nome_de_arquivo_seguro(f"{reservado}{extensao}")
+    primeiro = seguro.split(".", 1)[0]
+    assert primeiro.lower() not in {r.lower() for r in RESERVADOS}, seguro
+
+
+@pytest.mark.parametrize("bruto", [
+    "d" * 119 + " " + "e" * 10,
+    "x" * 200 + ".pdf",
+    "nome muito longo " * 20 + ".md",
+])
+def test_nome_truncado_nao_termina_em_espaco_nem_ponto(bruto):
+    """Cortar em 120 caracteres pode deixar um espaço no fim.
+
+    O Windows grava o arquivo com o espaço cortado, e o caminho guardado no
+    banco passa a apontar para um nome que o disco não tem.
+    """
+    seguro = nome_de_arquivo_seguro(bruto)
     base = seguro.rsplit(".", 1)[0] if "." in seguro else seguro
-    assert base.lower() not in {r.lower() for r in RESERVADOS}
+    assert not base.endswith((" ", ".")), repr(seguro)
 
 
 @pytest.mark.parametrize("bruto, esperado_fim", [
@@ -315,3 +335,87 @@ def test_git_guarda_lf_e_entrega_crlf_no_windows():
     for extensao in ("*.bat", "*.cmd", "*.ps1"):
         assert f"{extensao}" in regras and "eol=crlf" in regras
     assert "*.sh" in regras and "eol=lf" in regras
+
+
+# --------------------------------------------------------------------------
+# Configuração e serviço de arquivos estáticos
+# --------------------------------------------------------------------------
+
+def test_caminho_do_env_com_escape_e_recusado_com_explicacao():
+    """`DIRETORIO_BIBLIOTECA="C:\\Users\\nome"` chega aqui partido ao meio.
+
+    O leitor de .env interpreta escapes dentro de aspas duplas, e o `\\n` de
+    "\\nome" vira quebra de linha. Sem esta checagem, o `mkdir` seguinte falha
+    com um erro do sistema que não menciona o .env, durante o import — o
+    servidor não sobe e não diz por quê.
+    """
+    from app.config import ErroDeConfiguracao, _conferir_caminho
+
+    corrompido = Path("C:\\Users\nome\\livros")
+    with pytest.raises(ErroDeConfiguracao) as erro:
+        _conferir_caminho("a biblioteca", "DIRETORIO_BIBLIOTECA", corrompido)
+    mensagem = str(erro.value)
+    assert ".env" in mensagem
+    assert "aspas duplas" in mensagem
+    assert "DIRETORIO_BIBLIOTECA=" in mensagem
+
+
+def test_caminho_normal_do_windows_passa():
+    from app.config import _conferir_caminho
+
+    for bom in ("C:\\Users\\aluno\\livros", "C:/Users/aluno/livros", "./biblioteca"):
+        _conferir_caminho("a biblioteca", "DIRETORIO_BIBLIOTECA", Path(bom))
+
+
+def test_env_de_exemplo_avisa_sobre_as_aspas():
+    texto = (RAIZ / ".env.example").read_text(encoding="utf-8")
+    assert "aspas duplas" in texto
+
+
+def test_tipos_mime_nao_dependem_do_registro_do_windows():
+    """No Windows, `mimetypes` lê o registro e sobrescreve o mapa embutido.
+
+    É comum um instalador de terceiro ter deixado ".css" como "text/plain", e
+    em modo padrão o navegador recusa folha de estilo que não venha como
+    "text/css": a interface abriria inteira sem estilo, sem erro no servidor.
+    """
+    import mimetypes
+
+    mimetypes.add_type("text/plain", ".css", True)     # simula o registro
+    mimetypes.add_type("text/plain", ".js", True)
+    import importlib
+
+    import app.main
+    importlib.reload(app.main)
+
+    assert mimetypes.guess_type("estilo.css")[0] == "text/css"
+    assert mimetypes.guess_type("app.js")[0] in {"text/javascript",
+                                                 "application/javascript"}
+    assert mimetypes.guess_type("icone.svg")[0] == "image/svg+xml"
+
+
+def test_pragma_do_journal_e_conferido_e_nao_apenas_enviado():
+    """`PRAGMA journal_mode` não levanta erro quando falha: devolve o modo."""
+    import sqlite3
+    import tempfile
+
+    from app.console import conferir_journal
+
+    caminho = Path(tempfile.mkdtemp()) / "teste.db"
+    conexao = sqlite3.connect(caminho)
+    try:
+        assert conferir_journal(conexao, caminho) == "wal"
+    finally:
+        conexao.close()
+
+
+def test_upload_usa_temporario_unico_por_requisicao():
+    """Nome fixo faria dois envios simultâneos colidirem.
+
+    No Windows, arquivo aberto por outra requisição não pode ser renomeado
+    nem apagado: a colisão vira "Acesso negado" e deixa um .parcial órfão.
+    """
+    fonte = (RAIZ / "app" / "main.py").read_text(encoding="utf-8")
+    assert '.parcial"' in fonte
+    assert 'f".{nome}.parcial"' not in fonte, "o temporário depende do nome enviado"
+    assert "uuid4().hex" in fonte

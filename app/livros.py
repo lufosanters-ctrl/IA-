@@ -492,10 +492,18 @@ def nome_de_arquivo_seguro(bruto: str, padrao: str = "livro") -> str:
     # O Windows corta ponto e espaço do fim do nome em silêncio. Um arquivo
     # gravado como "capitulo ." vira "capitulo", e o caminho guardado no banco
     # deixa de existir.
-    base = base.rstrip(" .") or padrao
-    if base.lower() in _NOMES_RESERVADOS:
-        base = f"{base}-livro"
+    # Truncar ANTES de aparar: cortar em 120 caracteres pode deixar um espaço
+    # no fim, e aí o Windows grava o arquivo com um nome e o banco guarda
+    # outro.
+    base = base[:_MAX_NOME].rstrip(" .") or padrao
 
-    base = base[:_MAX_NOME]
+    # O Windows resolve nome de dispositivo pelo segmento antes do PRIMEIRO
+    # ponto: "CON.livro.pdf" é o console, não um arquivo. Testar o que vem
+    # antes do último ponto deixava passar toda extensão composta.
+    if base.split(".", 1)[0].strip(" .").lower() in _NOMES_RESERVADOS:
+        # Prefixo, não sufixo: com "CON.tar.gz" o sufixo cairia no meio do
+        # nome ("CON.tar-livro.gz"), e o primeiro segmento continuaria sendo
+        # o nome do dispositivo.
+        base = f"arquivo-{base}"
     extensao = extensao.strip(" .")[:16]
     return f"{base}.{extensao}" if extensao else base

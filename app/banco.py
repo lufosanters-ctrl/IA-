@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterator
 
 from .config import obter_config
+from .console import conferir_journal
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS pesquisas (
@@ -109,7 +110,13 @@ def conectar() -> Iterator[sqlite3.Connection]:
     conexao = sqlite3.connect(cfg.caminho_banco, timeout=15)
     conexao.row_factory = sqlite3.Row
     conexao.execute("PRAGMA foreign_keys = ON")
-    conexao.execute("PRAGMA journal_mode = WAL")
+    # O WAL precisa de um arquivo -shm mapeado em memória na mesma pasta.
+    # Em pasta de rede, ou sincronizada pelo OneDrive — que no Windows 11 é o
+    # destino padrão de "Documentos" —, o SQLite não consegue e cai para
+    # outro modo SEM levantar erro: ele devolve o modo que conseguiu aplicar.
+    # Ler o retorno é a única forma de saber, e vale avisar, porque é a
+    # explicação de um "database is locked" que aparece do nada.
+    conferir_journal(conexao, cfg.caminho_banco)
     try:
         if not _esquema_pronto:
             _preparar(conexao)
